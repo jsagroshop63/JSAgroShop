@@ -11,6 +11,10 @@ import { isSupabaseEnabled, supabase } from './supabase'
 import { customersFromOrders } from './localStore'
 import { normalizeLanding, normalizeSite, seedLanding, seedSite } from './seed'
 
+function fail(error: { message: string } | null) {
+  if (error) throw new Error(error.message)
+}
+
 function asStringList(value: unknown): string[] {
   if (Array.isArray(value)) return value.map((item) => String(item))
   if (typeof value === 'string' && value.trim()) {
