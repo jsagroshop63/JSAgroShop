@@ -11,8 +11,17 @@ import { isSupabaseEnabled, supabase } from './supabase'
 import { customersFromOrders } from './localStore'
 import { normalizeLanding, normalizeSite, seedLanding, seedSite } from './seed'
 
-function fail(error: { message: string } | null) {
-  if (error) throw new Error(error.message)
+function asStringList(value: unknown): string[] {
+  if (Array.isArray(value)) return value.map((item) => String(item))
+  if (typeof value === 'string' && value.trim()) {
+    try {
+      const parsed = JSON.parse(value) as unknown
+      if (Array.isArray(parsed)) return parsed.map((item) => String(item))
+    } catch {
+      return value.split('\n')
+    }
+  }
+  return []
 }
 
 function asProduct(row: Record<string, unknown>): Product {
@@ -92,19 +101,11 @@ function asLanding(row: Record<string, unknown>): LandingContent {
     heroTitle: String(row.hero_title ?? ''),
     heroSubtitle: String(row.hero_subtitle ?? ''),
     packageTitle: String(row.package_title ?? ''),
-    packageItems: Array.isArray(row.package_items)
-      ? (row.package_items as string[])
-      : typeof row.package_items === 'string'
-        ? [row.package_items]
-        : [],
+    packageItems: asStringList(row.package_items),
     storyTitle: String(row.story_title ?? ''),
     storyBody: String(row.story_body ?? ''),
     whyTitle: String(row.why_title ?? ''),
-    whyItems: Array.isArray(row.why_items)
-      ? (row.why_items as string[])
-      : typeof row.why_items === 'string'
-        ? [row.why_items]
-        : [],
+    whyItems: asStringList(row.why_items),
     paymentTitle: String(row.payment_title ?? ''),
     paymentNumber: String(row.payment_number ?? ''),
     paymentNote: String(row.payment_note ?? ''),
@@ -178,6 +179,49 @@ export async function fetchCloudOrders(): Promise<Order[] | null> {
   const { data, error } = await supabase.from('orders').select('*').order('created_at', { ascending: false })
   if (error) return null
   return (data ?? []).map((row) => asOrder(row as Record<string, unknown>))
+}
+
+export async function fetchCloudCms() {
+  if (!isSupabaseEnabled || !supabase) return null
+  const [media, landing, site] = await Promise.all([
+    supabase.from('landing_media').select('*').order('sort_order'),
+    supabase.from('landing_content').select('*').eq('id', 1).maybeSingle(),
+    supabase.from('site_settings').select('*').eq('id', 1).maybeSingle(),
+  ])
+  return {
+    landing: landing.data ? asLanding(landing.data as Record<string, unknown>) : seedLanding,
+    media: (media.data ?? []).map((row) => asMedia(row as Record<string, unknown>)),
+    site: site.data && !site.error ? asSite(site.data as Record<string, unknown>) : seedSite,
+    cmsUpdatedAt: landing.data
+      ? String((landing.data as Record<string, unknown>).updated_at ?? '')
+      : '',
+  }
+}
+
+export function subscribeToCms(onChange: () => void) {
+  if (!supabase) return () => {}
+  const client = supabase
+  const channel = client
+    .channel('public-cms')
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'landing_content' },
+      onChange,
+    )
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'landing_media' },
+      onChange,
+    )
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'site_settings' },
+      onChange,
+    )
+    .subscribe()
+  return () => {
+    void client.removeChannel(channel)
+  }
 }
 
 export function subscribeToOrders(handlers: {
@@ -377,7 +421,7 @@ export async function cloudDeleteMedia(id: string) {
   fail(error)
 }
 
-export async function cloudSaveLanding(landing: LandingContent) {
+export async function cloudSaveLanding(landing: LandingContent, updatedAt = new Date().toISOString()) {
   if (!supabase) return
   const payload = {
     id: 1,
@@ -406,7 +450,7 @@ export async function cloudSaveLanding(landing: LandingContent) {
     checkout_order_title: landing.checkoutOrderTitle ?? '',
     checkout_submit_label: landing.checkoutSubmitLabel ?? '',
     checkout_cod_note: landing.checkoutCodNote ?? '',
-    updated_at: new Date().toISOString(),
+    updated_at: updatedAt,
   }
   const { error } = await supabase.from('landing_content').upsert(payload)
   if (error && /column/i.test(error.message)) {

@@ -145,7 +145,7 @@ export function resetSnapshot() {
 
 export function onLocalSnapshotChange(callback: () => void) {
   const handler = (event: StorageEvent) => {
-    if (event.key === KEY) callback()
+    if (event.key === KEY || event.key === CMS_KEY) callback()
   }
   window.addEventListener('storage', handler)
   return () => window.removeEventListener('storage', handler)

@@ -34,12 +34,14 @@ import {
   cloudUpsertSlide,
   fetchCloudOrders,
   fetchCloudSnapshot,
+  fetchCloudCms,
   subscribeToOrders,
+  subscribeToCms,
 } from '@/lib/cloud'
 import { isSupabaseEnabled } from '@/lib/supabase'
 import { applyIncomingOrder, DuplicateProductUnitError, hasSameProductUnitOrder } from '@/lib/mergeOrder'
 import { readAttribution } from '@/lib/metaPixel'
-import { normalizeLanding, normalizeSite, seedSite } from '@/lib/seed'
+import { normalizeLanding, normalizeSite } from '@/lib/seed'
 
 type StoreContextValue = StoreSnapshot & {
   loading: boolean
@@ -63,13 +65,39 @@ type StoreContextValue = StoreSnapshot & {
 
 const StoreContext = createContext<StoreContextValue | null>(null)
 
-function mergeById<T extends { id: string }>(remote: T[], local: T[]): T[] {
-  const map = new Map<string, T>()
-  for (const item of remote) map.set(item.id, item)
-  for (const item of local) {
-    if (!map.has(item.id)) map.set(item.id, item)
+function applyRemoteCms(
+  prev: StoreSnapshot,
+  cloud: Pick<StoreSnapshot, 'landing' | 'media' | 'site' | 'cmsUpdatedAt'> & Partial<StoreSnapshot>,
+): StoreSnapshot {
+  const localTs = prev.cmsUpdatedAt || ''
+  const cloudTs = cloud.cmsUpdatedAt || ''
+  const keepLocal = Boolean(localTs && cloudTs && localTs > cloudTs)
+  if (keepLocal) {
+    return persist({
+      ...prev,
+      ...cloud,
+      landing: prev.landing,
+      media: prev.media,
+      site: prev.site,
+      cmsUpdatedAt: prev.cmsUpdatedAt,
+      products: cloud.products ?? prev.products,
+      orders: cloud.orders ?? prev.orders,
+      slides: cloud.slides?.length ? cloud.slides : prev.slides,
+      messages: cloud.messages?.length ? cloud.messages : prev.messages ?? [],
+    })
   }
-  return [...map.values()]
+  return persist({
+    ...prev,
+    ...cloud,
+    landing: normalizeLanding(cloud.landing),
+    media: cloud.media ?? prev.media,
+    site: normalizeSite(cloud.site ?? prev.site),
+    products: cloud.products ?? prev.products,
+    orders: cloud.orders ?? prev.orders,
+    slides: cloud.slides?.length ? cloud.slides : prev.slides,
+    messages: cloud.messages?.length ? cloud.messages : prev.messages ?? [],
+    cmsUpdatedAt: cloudTs || localTs,
+  })
 }
 
 function persist(next: StoreSnapshot) {
@@ -119,60 +147,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     let cancelled = false
     fetchCloudSnapshot()
       .then((cloud) => {
-        if (cancelled || !cloud?.products.length) return
-        setSnapshot((prev) => {
-          const localTs = prev.cmsUpdatedAt || ''
-          const cloudTs = cloud.cmsUpdatedAt || ''
-          const keepLocalCms = Boolean(localTs && (!cloudTs || localTs >= cloudTs))
-          if (keepLocalCms) {
-            return persist({
-              ...cloud,
-              landing: prev.landing,
-              media: prev.media,
-              site: prev.site,
-              cmsUpdatedAt: prev.cmsUpdatedAt,
-              slides: cloud.slides.length ? cloud.slides : prev.slides,
-              messages: cloud.messages.length ? cloud.messages : prev.messages ?? [],
-            })
-          }
-          const landing = cloud.landing.heroTitle ? cloud.landing : prev.landing
-          return persist({
-            ...cloud,
-            landing: {
-              ...landing,
-              metaPixelId: landing.metaPixelId?.trim() || prev.landing.metaPixelId,
-              offerTitle: landing.offerTitle?.trim() || prev.landing.offerTitle || '',
-              offerPrice: landing.offerPrice > 0 ? landing.offerPrice : prev.landing.offerPrice || 0,
-              offerComparePrice: landing.offerComparePrice ?? prev.landing.offerComparePrice ?? null,
-              offerMediaIds:
-                Array.isArray(landing.offerMediaIds) && landing.offerMediaIds.length
-                  ? landing.offerMediaIds
-                  : prev.landing.offerMediaIds ?? [],
-              ctaLabel: landing.ctaLabel?.trim() || prev.landing.ctaLabel,
-              checkoutTitle: landing.checkoutTitle?.trim() || prev.landing.checkoutTitle,
-              helpTitle: landing.helpTitle?.trim() || prev.landing.helpTitle,
-              helpSubtitle: landing.helpSubtitle?.trim() || prev.landing.helpSubtitle,
-              paymentTitle: landing.paymentTitle?.trim() || prev.landing.paymentTitle,
-              paymentNote: landing.paymentNote?.trim() || prev.landing.paymentNote,
-              checkoutBillingTitle: landing.checkoutBillingTitle?.trim() || prev.landing.checkoutBillingTitle,
-              checkoutOrderTitle: landing.checkoutOrderTitle?.trim() || prev.landing.checkoutOrderTitle,
-              checkoutSubmitLabel: landing.checkoutSubmitLabel?.trim() || prev.landing.checkoutSubmitLabel,
-              checkoutCodNote: landing.checkoutCodNote?.trim() || prev.landing.checkoutCodNote,
-            },
-            media: mergeById(cloud.media, prev.media),
-            slides: cloud.slides.length ? cloud.slides : prev.slides,
-            messages: cloud.messages.length ? cloud.messages : prev.messages ?? [],
-            site: normalizeSite(
-              cloud.site &&
-                cloud.site.name === seedSite.name &&
-                cloud.site.phone === seedSite.phone &&
-                cloud.site.slogan === seedSite.slogan
-                ? prev.site ?? cloud.site
-                : cloud.site ?? prev.site,
-            ),
-            cmsUpdatedAt: cloud.cmsUpdatedAt || prev.cmsUpdatedAt,
-          })
-        })
+        if (cancelled || !cloud) return
+        setSnapshot((prev) => applyRemoteCms(prev, cloud))
       })
       .catch((error: unknown) => {
         if (!cancelled) setSyncError(error instanceof Error ? error.message : 'Cloud load failed')
@@ -226,6 +202,28 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     return () => {
       unsub()
       window.clearInterval(poll)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!isSupabaseEnabled) return
+    const pullCms = () => {
+      void fetchCloudCms().then((cloud) => {
+        if (!cloud) return
+        setSnapshot((prev) => applyRemoteCms(prev, cloud))
+      })
+    }
+    pullCms()
+    const poll = window.setInterval(pullCms, 10000)
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') pullCms()
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    const unsub = subscribeToCms(pullCms)
+    return () => {
+      unsub()
+      window.clearInterval(poll)
+      document.removeEventListener('visibilitychange', onVisible)
     }
   }, [])
 
@@ -370,8 +368,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const saveLanding = useCallback(
     async (landing: LandingContent) => {
-      commit((prev) => ({ ...prev, landing, cmsUpdatedAt: stamp() }))
-      await sync(() => cloudSaveLanding(landing), true)
+      const cmsUpdatedAt = stamp()
+      commit((prev) => ({ ...prev, landing, cmsUpdatedAt }))
+      await sync(() => cloudSaveLanding(landing, cmsUpdatedAt), true)
     },
     [commit, sync],
   )

@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Copy, Check, ChevronDown } from 'lucide-react'
 import { useConfirm } from '@/components/admin/ConfirmDialog'
 import { AdminUploadField } from '@/components/admin/AdminUploadField'
@@ -75,6 +75,22 @@ export function AdminLandingPage() {
   useEffect(() => {
     setLandingUrl(adsUrl())
   }, [])
+
+  const lastSavedPackage = useRef(
+    JSON.stringify({ title: form.packageTitle, items: form.packageItems }),
+  )
+  useEffect(() => {
+    const payload = JSON.stringify({ title: form.packageTitle, items: form.packageItems })
+    if (payload === lastSavedPackage.current) return
+    const timer = window.setTimeout(() => {
+      lastSavedPackage.current = payload
+      const next = normalizeLanding({ ...form, offerProductId: 'prod_landing_offer' })
+      void saveLanding(next)
+        .then(() => setNotice('Package list saved. It now shows on the landing page.'))
+        .catch((error) => setNotice(error instanceof Error ? error.message : 'Save failed'))
+    }, 800)
+    return () => window.clearTimeout(timer)
+  }, [form, saveLanding])
 
   function resetUpload() {
     setUpload({ ...emptyMedia, sortOrder: media.length + 1 })
@@ -468,9 +484,16 @@ export function AdminLandingPage() {
               className="mt-1 min-h-40 w-full rounded-xl bg-white/5 px-3 py-3 text-zinc-100"
             />
             <span className="mt-1 block text-xs text-zinc-500">
-              Number a line yourself with 1. 2. 3. Lines without a number show as headings. Use Title: details to split heading and description.
+              Number a line yourself with 1. 2. 3. Lines without a number show as headings. Use Title: details to split heading and description. Save after edit — deleted lines leave the landing page, changed lines update it.
             </span>
           </label>
+          <button
+            type="submit"
+            disabled={saving}
+            className="rounded-xl bg-gold px-6 py-3 font-bold text-leaf-deep disabled:opacity-60"
+          >
+            {saving ? 'Saving...' : 'Save'}
+          </button>
         </section>
 
         <section className="space-y-4 rounded-2xl border border-white/10 bg-white/5 p-4">

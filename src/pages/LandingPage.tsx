@@ -39,8 +39,9 @@ function parsePackageLine(line: string, autoNumber?: number): PackageLine {
 }
 
 function parsePackageItems(items: string[]): PackageLine[] {
-  const hasManualNumbers = items.some((item) => NUMBER_PREFIX.test(item))
-  return items.map((item, index) => parsePackageLine(item, hasManualNumbers ? undefined : index + 1))
+  const lines = items.map((item) => item.trim()).filter(Boolean)
+  const hasManualNumbers = lines.some((item) => NUMBER_PREFIX.test(item))
+  return lines.map((item, index) => parsePackageLine(item, hasManualNumbers ? undefined : index + 1))
 }
 
 function scrollToOrder(event: MouseEvent<HTMLAnchorElement>) {
