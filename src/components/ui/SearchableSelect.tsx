@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom'
 
 type Props = {
   value: string
-  options: string[]
+  options: readonly string[]
   onChange: (value: string) => void
   placeholder?: string
 }
@@ -76,7 +76,7 @@ export function SearchableSelect({ value, options, onChange, placeholder = 'à¦œà
         <span>{value}</span>
         <ChevronDown className={`size-4 shrink-0 text-ink/50 ${open ? 'rotate-180' : ''}`} />
       </button>
-      {open
+      {open && typeof document !== 'undefined'
         ? createPortal(
             <div
               ref={menuRef}

@@ -709,7 +709,7 @@ export function AdminLandingPage() {
           }}
         />
 
-        <SaveBtn saving={saving} />
+        <SaveBtn saving={saving} ok={savedOk} />
       </form>
     </div>
   )
