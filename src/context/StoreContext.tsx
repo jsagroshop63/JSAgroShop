@@ -85,12 +85,8 @@ function applyRemoteCms(
 ): StoreSnapshot {
   const localTs = prev.cmsUpdatedAt || ''
   const cloudTs = cloud.cmsUpdatedAt || ''
-  const hasLanding = cloud.hasLanding === true
   const keepLocal =
-    Date.now() < ignoreRemoteCmsUntil ||
-    !hasLanding ||
-    cmsTime(localTs) > cmsTime(cloudTs) ||
-    cmsTime(publishedCmsAt) > cmsTime(cloudTs)
+    Date.now() < ignoreRemoteCmsUntil || cmsTime(publishedCmsAt) > cmsTime(cloudTs)
   if (keepLocal) {
     return persist({
       ...prev,
@@ -98,6 +94,17 @@ function applyRemoteCms(
       orders: cloud.orders ?? prev.orders,
       slides: cloud.slides?.length ? cloud.slides : prev.slides,
       messages: cloud.messages?.length ? cloud.messages : prev.messages ?? [],
+    })
+  }
+  if (cloud.hasLanding !== true) {
+    return persist({
+      ...prev,
+      products: cloud.products ?? prev.products,
+      orders: cloud.orders ?? prev.orders,
+      slides: cloud.slides?.length ? cloud.slides : prev.slides,
+      messages: cloud.messages?.length ? cloud.messages : prev.messages ?? [],
+      media: cloud.hasMedia === false || !Array.isArray(cloud.media) ? prev.media : cloud.media,
+      site: cloud.site ? normalizeSite(cloud.site) : prev.site,
     })
   }
   const nextLanding = normalizeLanding(cloud.landing)
@@ -193,7 +200,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     return onLocalSnapshotChange(() => {
-      setSnapshot(loadSnapshot())
+      setSnapshot((prev) => {
+        const next = loadSnapshot()
+        if (!isSupabaseEnabled) return next
+        return {
+          ...next,
+          landing: prev.landing,
+          site: prev.site,
+          media: prev.media,
+          cmsUpdatedAt: prev.cmsUpdatedAt,
+        }
+      })
     })
   }, [])
 

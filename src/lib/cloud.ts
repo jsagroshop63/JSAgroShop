@@ -207,18 +207,19 @@ export async function fetchCloudCms() {
     supabase.from('landing_content').select('*').eq('id', 1).maybeSingle(),
     supabase.from('site_settings').select('*').eq('id', 1).maybeSingle(),
   ])
-  if (media.error) return null
-  if (landing.error && landing.error.code !== 'PGRST116') return null
-  const hasLanding = Boolean(landing.data)
+  const landingError = landing.error && landing.error.code !== 'PGRST116'
+  const hasLanding = Boolean(landing.data) && !landingError
+  const hasMedia = !media.error
+  if (!hasLanding && !hasMedia && site.error) return null
   return {
     landing: hasLanding ? asLanding(landing.data as Record<string, unknown>) : undefined,
-    media: (media.data ?? []).map((row) => asMedia(row as Record<string, unknown>)),
+    media: hasMedia ? (media.data ?? []).map((row) => asMedia(row as Record<string, unknown>)) : undefined,
     site: site.data && !site.error ? asSite(site.data as Record<string, unknown>) : undefined,
     cmsUpdatedAt: hasLanding
       ? String((landing.data as Record<string, unknown>).updated_at ?? '')
       : '',
     hasLanding,
-    hasMedia: true,
+    hasMedia,
   }
 }
 

@@ -5,6 +5,14 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
+export function freshMediaUrl(url: string, stamp: string) {
+  if (!url || !stamp) return url
+  if (url.startsWith('data:') || url.startsWith('blob:')) return url
+  if (/youtube\.com|youtu\.be/.test(url)) return url
+  const join = url.includes('?') ? '&' : '?'
+  return `${url}${join}t=${encodeURIComponent(stamp)}`
+}
+
 export function uid(prefix = 'id') {
   return `${prefix}_${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36).slice(-4)}`
 }
