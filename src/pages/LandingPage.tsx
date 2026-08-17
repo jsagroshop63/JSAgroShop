@@ -46,7 +46,24 @@ function parsePackageItems(items: string[]): PackageLine[] {
 
 function scrollToOrder(event: MouseEvent<HTMLAnchorElement>) {
   event.preventDefault()
-  document.getElementById('order-form')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  const target = document.getElementById('product-select') || document.getElementById('order-form')
+  target?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
+
+function OrderButton({
+  label,
+  className,
+  onClick,
+}: {
+  label: string
+  className?: string
+  onClick: (event: MouseEvent<HTMLAnchorElement>) => void
+}) {
+  return (
+    <a href="#product-select" onClick={onClick} className={className}>
+      {label}
+    </a>
+  )
 }
 
 function trackLandingCheckout(
@@ -140,8 +157,12 @@ export function LandingPage() {
     [landingProduct],
   )
   const packageLines = parsePackageItems(content.packageItems)
-  const showHeroCta = Boolean(content.ctaLabel.trim())
+  const orderLabel = content.ctaLabel.trim() || 'অর্ডার করুন'
   const showPackage = Boolean(content.packageTitle.trim() || packageLines.length)
+  const goToProductSelect = (event: MouseEvent<HTMLAnchorElement>) => {
+    scrollToOrder(event)
+    trackLandingCheckout(pathname, landingProduct)
+  }
   const showStory = Boolean(content.storyTitle.trim() || content.storyBody.trim() || gallery.length)
   const showWhy = Boolean(content.whyTitle.trim() || content.whyItems.length)
   const phones = content.paymentNumber
@@ -174,20 +195,13 @@ export function LandingPage() {
             ) : null}
           </div>
         ) : null}
-        {showHeroCta ? (
-          <a
-            href="#order-form"
-            onClick={(event) => {
-              scrollToOrder(event)
-              trackLandingCheckout(pathname, landingProduct)
-            }}
-            className="mt-8 inline-block rounded-md bg-gold px-10 py-4 text-2xl font-extrabold text-black shadow-lg"
-          >
-            {content.ctaLabel}
-          </a>
-        ) : null}
         {showPackage ? (
           <>
+            <OrderButton
+              label={orderLabel}
+              onClick={goToProductSelect}
+              className="mt-8 inline-block rounded-md bg-gold px-10 py-4 text-2xl font-extrabold text-black shadow-lg"
+            />
             {content.packageTitle ? (
               <div className="mx-auto mt-8 max-w-3xl rounded-2xl bg-white px-6 py-4 text-leaf">
                 <h2 className="text-xl font-extrabold md:text-2xl">{content.packageTitle}</h2>
@@ -221,18 +235,19 @@ export function LandingPage() {
             ) : null}
           </>
         ) : null}
-        {showHeroCta ? (
-          <a
-            href="#order-form"
-            onClick={(event) => {
-              scrollToOrder(event)
-              trackLandingCheckout(pathname, landingProduct)
-            }}
+        {showPackage ? (
+          <OrderButton
+            label={orderLabel}
+            onClick={goToProductSelect}
             className="mt-10 inline-block rounded-md bg-gold px-10 py-4 text-2xl font-extrabold text-black shadow-lg"
-          >
-            {content.ctaLabel}
-          </a>
-        ) : null}
+          />
+        ) : (
+          <OrderButton
+            label={orderLabel}
+            onClick={goToProductSelect}
+            className="mt-8 inline-block rounded-md bg-gold px-10 py-4 text-2xl font-extrabold text-black shadow-lg"
+          />
+        )}
       </section>
 
       {showStory ? (
@@ -251,32 +266,30 @@ export function LandingPage() {
                   className="w-full max-w-sm overflow-hidden rounded-xl border-4 border-gold bg-leaf-deep sm:w-[calc(50%-0.5rem)] lg:w-[calc(33.333%-0.7rem)]"
                 >
                   {item.type === 'video' ? (
-                    <div className="aspect-video">
-                      {youtubeId(item.url) ? (
-                        <iframe
-                          className="size-full"
-                          src={`https://www.youtube.com/embed/${youtubeId(item.url)}`}
-                          title={item.title}
-                          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                          allowFullScreen
-                        />
-                      ) : (
-                        <video src={item.url} controls className="size-full object-cover" />
-                      )}
+                    <div>
+                      <div className="aspect-video">
+                        {youtubeId(item.url) ? (
+                          <iframe
+                            className="size-full"
+                            src={`https://www.youtube.com/embed/${youtubeId(item.url)}`}
+                            title={item.title}
+                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                            allowFullScreen
+                          />
+                        ) : (
+                          <video src={item.url} controls className="size-full object-cover" />
+                        )}
+                      </div>
+                      <OrderButton
+                        label={orderLabel}
+                        onClick={goToProductSelect}
+                        className="block bg-gold py-3 text-lg font-extrabold text-black"
+                      />
                     </div>
                   ) : (
-                    <a
-                      href="#order-form"
-                      onClick={(event) => {
-                        scrollToOrder(event)
-                        trackLandingCheckout(pathname, landingProduct)
-                      }}
-                      className="block"
-                    >
+                    <a href="#product-select" onClick={goToProductSelect} className="block">
                       <SafeImage src={item.url} alt={item.title} className="aspect-square w-full object-cover" />
-                      {showHeroCta ? (
-                        <span className="block bg-gold py-3 text-lg font-extrabold text-black">{content.ctaLabel}</span>
-                      ) : null}
+                      <span className="block bg-gold py-3 text-lg font-extrabold text-black">{orderLabel}</span>
                     </a>
                   )}
                   {(item.title || item.caption) && (
@@ -308,30 +321,38 @@ export function LandingPage() {
       ) : null}
 
       {showHelp ? (
-        <section className="bg-gold px-4 py-10">
-          {content.helpTitle ? (
-            <p className="mx-auto max-w-3xl text-lg font-extrabold leading-snug text-leaf-deep md:text-2xl">
-              {content.helpTitle}
-            </p>
-          ) : null}
-          {content.helpSubtitle ? (
-            <p className="mt-3 text-lg font-extrabold text-leaf-deep md:text-2xl">{content.helpSubtitle}</p>
-          ) : null}
+        <section className="bg-gold px-4 py-3">
+          <div className="mx-auto w-[70%]">
+          <p className="mx-auto max-w-3xl text-base font-extrabold leading-snug text-leaf-deep md:text-xl">
+            {content.helpTitle.trim() || 'ওয়েবসাইটে অর্ডার করতে সমস্যা হলে বা অর্ডার করতে না পারলে'}
+          </p>
+          <p className="mt-1 text-base font-extrabold text-leaf-deep md:text-xl">
+            {content.helpSubtitle.trim() || 'প্রয়োজনে কল করুন-'}
+          </p>
           {content.paymentTitle ? (
-            <p className="mt-3 text-lg font-extrabold text-leaf-deep md:text-2xl">{content.paymentTitle}</p>
-          ) : null}
+            <p className="mt-1 text-base font-extrabold text-leaf-deep md:text-xl">{content.paymentTitle}</p>
+          ) : (
+            <p className="mt-1 text-base font-extrabold text-leaf-deep md:text-xl">WhatsApp / Imo</p>
+          )}
           {phones.length ? (
-            <p className="mt-3 space-y-1 text-2xl font-extrabold text-leaf-deep md:text-3xl">
+            <p className="mt-1 space-y-0.5 text-xl font-extrabold text-leaf-deep md:text-2xl">
               {phones.map((phone) => (
                 <a key={phone} href={`tel:${phone.replace(/[\s-]/g, '')}`} className="block">
                   {phone}
                 </a>
               ))}
             </p>
-          ) : null}
-          {content.paymentNote ? (
-            <p className="mx-auto mt-4 max-w-3xl text-base font-semibold text-leaf-deep/80">{content.paymentNote}</p>
-          ) : null}
+          ) : (
+            <p className="mt-1 space-y-0.5 text-xl font-extrabold text-leaf-deep md:text-2xl">
+              <a href="tel:01813514791" className="block">01813-514791</a>
+              <a href="tel:01725250188" className="block">01725-250188</a>
+            </p>
+          )}
+          <p className="mx-auto mt-2 max-w-3xl text-sm font-semibold text-leaf-deep/80">
+            {content.paymentNote.trim() ||
+              'অর্ডার কনফার্ম করতে WhatsApp বা Imo-তে মেসেজ দিন। সারা দেশে কুরিয়ার/বাস ডেলিভারি।'}
+          </p>
+          </div>
         </section>
       ) : null}
 

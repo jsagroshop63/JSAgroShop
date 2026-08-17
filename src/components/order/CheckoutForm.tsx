@@ -170,38 +170,40 @@ export function CheckoutForm({
     >
       <section className={`rounded-3xl bg-white p-6 shadow-sm ${alignCenter ? 'text-center' : ''}`}>
         {billingTitle ? <h3 className="mb-5 text-2xl font-bold text-leaf">{billingTitle}</h3> : null}
-        {selectable.length > 1 ? (
-          <label className="mb-4 block">
-            <span className="mb-1 block text-sm font-semibold">পণ্য নির্বাচন করুন *</span>
-            <select
-              value={selectedProduct?.id ?? ''}
-              onChange={(e) => setSelectedId(e.target.value)}
-              className="w-full rounded-xl border border-leaf/20 bg-white px-4 py-3 text-ink"
-              required
-            >
-              {selectable.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.name} — {formatTaka(item.price)}
-                </option>
-              ))}
-            </select>
-          </label>
-        ) : selectedProduct && !lockItems ? (
-          <div className="mb-4">
-            <span className="mb-1 block text-sm font-semibold">পণ্য নির্বাচন করুন *</span>
-            <div className="flex items-center gap-3 rounded-xl border border-leaf/20 bg-cream px-3 py-3 text-ink">
-              <SafeImage
-                src={selectedProduct.image}
-                alt={displayName}
-                className="size-16 shrink-0 rounded-xl object-cover"
-              />
-              <div className="min-w-0 text-left">
-                <p className="font-extrabold leading-snug">{displayName}</p>
-                <p className="mt-1 text-sm font-semibold text-leaf">{formatTaka(selectedProduct.price)}</p>
+        <div id="product-select">
+          {selectable.length > 1 ? (
+            <label className="mb-4 block">
+              <span className="mb-1 block text-sm font-semibold">পণ্য নির্বাচন করুন *</span>
+              <select
+                value={selectedProduct?.id ?? ''}
+                onChange={(e) => setSelectedId(e.target.value)}
+                className="w-full rounded-xl border border-leaf/20 bg-white px-4 py-3 text-ink"
+                required
+              >
+                {selectable.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name} — {formatTaka(item.price)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : selectedProduct && !lockItems ? (
+            <div className="mb-4">
+              <span className="mb-1 block text-sm font-semibold">পণ্য নির্বাচন করুন *</span>
+              <div className="flex items-center gap-3 rounded-xl border border-leaf/20 bg-cream px-3 py-3 text-ink">
+                <SafeImage
+                  src={selectedProduct.image}
+                  alt={displayName}
+                  className="size-16 shrink-0 rounded-xl object-cover"
+                />
+                <div className="min-w-0 text-left">
+                  <p className="font-extrabold leading-snug">{displayName}</p>
+                  <p className="mt-1 text-sm font-semibold text-leaf">{formatTaka(selectedProduct.price)}</p>
+                </div>
               </div>
             </div>
-          </div>
-        ) : null}
+          ) : null}
+        </div>
         {((products.length === 1 && !lockItems) || selectable.length > 0) ? (
           <label className="mb-4 block">
             <span className="mb-1 block text-sm font-semibold">পরিমাণ</span>
