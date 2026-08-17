@@ -37,6 +37,8 @@ export function AdminLoginPage() {
           Email
           <input
             type="email"
+            required
+            autoComplete="username"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             className="mt-1 w-full rounded-xl border px-4 py-3"
@@ -46,6 +48,8 @@ export function AdminLoginPage() {
           Password
           <input
             type="password"
+            required
+            autoComplete="current-password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             className="mt-1 w-full rounded-xl border px-4 py-3"

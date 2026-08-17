@@ -207,8 +207,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       .finally(() => {
         if (!cancelled) setLoading(false)
       })
+    const timeout = window.setTimeout(() => {
+      if (!cancelled) setLoading(false)
+    }, 8000)
     return () => {
       cancelled = true
+      window.clearTimeout(timeout)
     }
   }, [])
 

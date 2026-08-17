@@ -32,12 +32,20 @@ const links = [
 ]
 
 export function AdminLayout() {
-  const { isAdmin, logout } = useAuth()
+  const { isAdmin, ready, logout } = useAuth()
   const { pathname } = useLocation()
   const [open, setOpen] = useState(false)
   const current = links.find((link) =>
     link.end ? pathname === link.to : pathname.startsWith(link.to),
   )
+
+  if (!ready) {
+    return (
+      <div className="grid min-h-svh place-items-center bg-[#0b1310] text-gold">
+        Checking login...
+      </div>
+    )
+  }
 
   if (!isAdmin) return <Navigate to="/admin/login" replace />
 
@@ -183,12 +191,11 @@ function AdminShell({
             </p>
           ) : null}
           {loading ? (
-            <p className="mb-4 rounded-xl border border-gold/20 bg-black/20 px-3 py-8 text-center text-gold">
+            <p className="mb-4 rounded-xl border border-gold/20 bg-black/20 px-3 py-2 text-sm text-gold">
               Loading live website data...
             </p>
-          ) : (
-            <Outlet />
-          )}
+          ) : null}
+          <Outlet />
         </div>
       </div>
     </div>

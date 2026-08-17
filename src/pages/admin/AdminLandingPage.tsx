@@ -74,7 +74,7 @@ export function AdminLandingPage() {
   const [copied, setCopied] = useState(false)
   const [landingUrl, setLandingUrl] = useState('')
   const sortedMedia = media
-    .filter((item) => !isDemoLandingMedia(item))
+    .filter((item) => item.url && !item.url.startsWith('/images/') && !/^media_[1-7]$/.test(item.id))
     .slice()
     .sort((a, b) => a.sortOrder - b.sortOrder)
   const pickedMedia = sortedMedia.filter((item) => form.offerMediaIds.includes(item.id))

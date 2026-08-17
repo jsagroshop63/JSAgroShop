@@ -547,6 +547,7 @@ export async function cloudSaveSite(site: SiteContent) {
 
 export async function uploadMediaFile(file: File): Promise<string> {
   if (supabase) {
+    await requireAdminSession()
     const path = `${Date.now()}-${file.name.replace(/\s+/g, '-')}`
     const { error } = await supabase.storage.from('media').upload(path, file, {
       cacheControl: '0',
