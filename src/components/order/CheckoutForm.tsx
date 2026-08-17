@@ -4,6 +4,7 @@ import { DISTRICTS, SHIPPING, type ShippingType } from '@/lib/districts'
 import type { OrderItem, Product } from '@/lib/types'
 import { formatTaka, isValidBdPhone, normalizeBdPhone } from '@/lib/utils'
 import { SafeImage } from '@/components/ui/SafeImage'
+import { SearchableSelect } from '@/components/ui/SearchableSelect'
 import { useStore } from '@/context/StoreContext'
 import { DUPLICATE_PRODUCT_UNIT_MESSAGE, hasSameProductUnitOrder } from '@/lib/mergeOrder'
 import { trackAddToCart, trackInitiateCheckout, trackOnce, trackPurchase } from '@/lib/metaPixel'
@@ -168,7 +169,7 @@ export function CheckoutForm({
       className={alignCenter ? 'mx-auto grid max-w-xl gap-8' : 'grid gap-8 lg:grid-cols-2'}
       id="order-form"
     >
-      <section className={`rounded-3xl bg-white p-6 shadow-sm ${alignCenter ? 'text-center' : ''}`}>
+      <section className={`overflow-visible rounded-3xl bg-white p-6 shadow-sm ${alignCenter ? 'text-center' : ''}`}>
         {billingTitle ? <h3 className="mb-5 text-2xl font-bold text-leaf">{billingTitle}</h3> : null}
         <div id="product-select">
           {selectable.length > 1 ? (
@@ -246,20 +247,10 @@ export function CheckoutForm({
             required
           />
         </label>
-        <label className="block">
+        <div className="block">
           <span className="mb-1 block text-sm font-semibold">জেলা *</span>
-          <select
-            value={district}
-            onChange={(e) => setDistrict(e.target.value)}
-            className="w-full rounded-xl border border-leaf/20 px-4 py-3"
-          >
-            {DISTRICTS.map((item) => (
-              <option key={item} value={item}>
-                {item}
-              </option>
-            ))}
-          </select>
-        </label>
+          <SearchableSelect value={district} options={DISTRICTS} onChange={setDistrict} />
+        </div>
       </section>
 
       <section className={`rounded-3xl bg-white p-6 shadow-sm ${alignCenter ? 'text-center' : ''}`}>
