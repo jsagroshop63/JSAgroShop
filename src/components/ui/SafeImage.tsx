@@ -5,14 +5,21 @@ type Props = {
   src: string
   alt: string
   className?: string
+  fallback?: string | null
 }
 
-export function SafeImage({ src, alt, className }: Props) {
-  const [current, setCurrent] = useState(src || '/images/fruits.jpg')
+export function SafeImage({ src, alt, className, fallback = '/images/fruits.jpg' }: Props) {
+  const [current, setCurrent] = useState(src || fallback || '')
+  const [failed, setFailed] = useState(false)
 
   useEffect(() => {
-    setCurrent(src || '/images/fruits.jpg')
-  }, [src])
+    setFailed(false)
+    setCurrent(src || fallback || '')
+  }, [src, fallback])
+
+  if (!current || failed) {
+    return <div className={cn('bg-leaf-light', className)} aria-hidden="true" />
+  }
 
   return (
     <img
@@ -20,7 +27,11 @@ export function SafeImage({ src, alt, className }: Props) {
       alt={alt}
       className={cn('bg-leaf-light object-cover', className)}
       onError={() => {
-        if (current !== '/images/fruits.jpg') setCurrent('/images/fruits.jpg')
+        if (fallback && current !== fallback) {
+          setCurrent(fallback)
+          return
+        }
+        setFailed(true)
       }}
     />
   )

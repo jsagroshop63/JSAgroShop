@@ -4,7 +4,7 @@ import { useConfirm } from '@/components/admin/ConfirmDialog'
 import { AdminUploadField } from '@/components/admin/AdminUploadField'
 import { ShopSettingsFields } from '@/components/admin/ShopSettingsFields'
 import { useStore } from '@/context/StoreContext'
-import { normalizeLanding, normalizeSite, LANDING_OFFER_ID } from '@/lib/seed'
+import { normalizeLanding, normalizeSite, LANDING_OFFER_ID, isDemoLandingMedia } from '@/lib/seed'
 import type { LandingContent, LandingMedia } from '@/lib/types'
 import { cn, formatTaka, uid } from '@/lib/utils'
 
@@ -73,7 +73,10 @@ export function AdminLandingPage() {
   }
   const [copied, setCopied] = useState(false)
   const [landingUrl, setLandingUrl] = useState('')
-  const sortedMedia = media.slice().sort((a, b) => a.sortOrder - b.sortOrder)
+  const sortedMedia = media
+    .filter((item) => !isDemoLandingMedia(item))
+    .slice()
+    .sort((a, b) => a.sortOrder - b.sortOrder)
   const pickedMedia = sortedMedia.filter((item) => form.offerMediaIds.includes(item.id))
   const landingChoices = pickedMedia.length ? pickedMedia : sortedMedia
   const landingCoverId = form.offerMediaIds[0] || landingChoices[0]?.id || ''
@@ -116,10 +119,18 @@ export function AdminLandingPage() {
   }, [])
 
   async function persistLanding() {
-    const next = normalizeLanding({ ...formRef.current, offerProductId: LANDING_OFFER_ID })
+    const uploaded = media.filter((item) => !isDemoLandingMedia(item))
+    const chosen = formRef.current.offerMediaIds.filter((id) => uploaded.some((item) => item.id === id))
+    const next = normalizeLanding({
+      ...formRef.current,
+      offerMediaIds: chosen.length ? chosen : uploaded.map((item) => item.id),
+      offerProductId: LANDING_OFFER_ID,
+    })
     await saveLanding(next)
     dirtyRef.current = false
     lastSavedLanding.current = JSON.stringify(next)
+    setForm(next)
+    formRef.current = next
     return next
   }
 
@@ -167,7 +178,9 @@ export function AdminLandingPage() {
     try {
       const item: LandingMedia = { id: editingId ?? uid('media'), ...upload }
       await saveMedia(item)
-      const nextIds = form.offerMediaIds.includes(item.id) ? form.offerMediaIds : [...form.offerMediaIds, item.id]
+      const nextIds = [...form.offerMediaIds, item.id].filter(
+        (id, index, list) => list.indexOf(id) === index && (id === item.id || sortedMedia.some((row) => row.id === id)),
+      )
       const nextForm = normalizeLanding({ ...form, offerMediaIds: nextIds, offerProductId: LANDING_OFFER_ID })
       setForm(nextForm)
       formRef.current = nextForm
@@ -315,7 +328,8 @@ export function AdminLandingPage() {
         <section id="landing-product" className="space-y-4 rounded-2xl border border-white/10 bg-white/5 p-4">
           <p className="text-sm font-semibold text-zinc-200">Landing product — title, price, photos</p>
           <p className="text-xs text-zinc-500">
-            Tick photos, set title and price. That becomes the /offer product — not a Home catalog item.
+            Tick the photos you uploaded. Only those photos appear on /offer — every phone and browser.
+          Then set title and price, and click Save until it says OK.
           </p>
 
           <div>

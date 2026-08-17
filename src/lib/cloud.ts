@@ -129,7 +129,7 @@ function asMedia(row: Record<string, unknown>): LandingMedia {
     title: String(row.title ?? ''),
     caption: String(row.caption ?? ''),
     sortOrder: Number(row.sort_order ?? 0),
-    active: Boolean(row.active),
+    active: row.active !== false && row.active !== 0 && String(row.active) !== 'false',
   }
 }
 
@@ -150,9 +150,7 @@ function asLanding(row: Record<string, unknown>): LandingContent {
     offerTitle: String(row.offer_title ?? ''),
     offerPrice: Number(row.offer_price ?? 0),
     offerComparePrice: row.offer_compare_price == null ? null : Number(row.offer_compare_price),
-    offerMediaIds: Array.isArray(row.offer_media_ids)
-      ? (row.offer_media_ids as unknown[]).map((id) => String(id))
-      : [],
+    offerMediaIds: asStringList(row.offer_media_ids),
     metaPixelId: String(row.meta_pixel_id ?? ''),
     ctaLabel: String(row.cta_label ?? ''),
     checkoutTitle: String(row.checkout_title ?? ''),
@@ -196,11 +194,10 @@ export async function fetchCloudSnapshot(): Promise<
     supabase.from('landing_content').select('*').eq('id', 1).maybeSingle(),
     supabase.from('site_settings').select('*').eq('id', 1).maybeSingle(),
   ])
-  if (products.error || orders.error) return null
-  const orderList = (orders.data ?? []).map((row) => asOrder(row as Record<string, unknown>))
+  const orderList = orders.error ? [] : (orders.data ?? []).map((row) => asOrder(row as Record<string, unknown>))
   const hasLanding = Boolean(landing.data) && !landing.error
   return {
-    products: (products.data ?? []).map((row) => asProduct(row as Record<string, unknown>)),
+    products: products.error ? [] : (products.data ?? []).map((row) => asProduct(row as Record<string, unknown>)),
     orders: orderList,
     slides: (slides.data ?? []).map((row) => asSlide(row as Record<string, unknown>)),
     media: media.error ? [] : (media.data ?? []).map((row) => asMedia(row as Record<string, unknown>)),
@@ -225,10 +222,12 @@ export async function fetchCloudOrders(): Promise<Order[] | null> {
 
 export async function fetchCloudCms() {
   if (!isSupabaseEnabled || !supabase) return null
-  const [media, landing, site] = await Promise.all([
+  const [media, landing, site, products, slides] = await Promise.all([
     supabase.from('landing_media').select('*').order('sort_order'),
     supabase.from('landing_content').select('*').eq('id', 1).maybeSingle(),
     supabase.from('site_settings').select('*').eq('id', 1).maybeSingle(),
+    supabase.from('products').select('*').order('created_at', { ascending: false }),
+    supabase.from('carousel_slides').select('*').order('sort_order'),
   ])
   const landingError = landing.error && landing.error.code !== 'PGRST116'
   const hasLanding = Boolean(landing.data) && !landingError
@@ -238,6 +237,12 @@ export async function fetchCloudCms() {
     landing: hasLanding ? asLanding(landing.data as Record<string, unknown>) : undefined,
     media: hasMedia ? (media.data ?? []).map((row) => asMedia(row as Record<string, unknown>)) : undefined,
     site: site.data && !site.error ? asSite(site.data as Record<string, unknown>) : undefined,
+    products: products.error
+      ? undefined
+      : (products.data ?? []).map((row) => asProduct(row as Record<string, unknown>)),
+    slides: slides.error
+      ? undefined
+      : (slides.data ?? []).map((row) => asSlide(row as Record<string, unknown>)),
     cmsUpdatedAt: hasLanding
       ? String((landing.data as Record<string, unknown>).updated_at ?? '')
       : '',
@@ -264,6 +269,16 @@ export function subscribeToCms(onChange: () => void) {
     .on(
       'postgres_changes',
       { event: '*', schema: 'public', table: 'site_settings' },
+      onChange,
+    )
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'products' },
+      onChange,
+    )
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'carousel_slides' },
       onChange,
     )
     .subscribe()
@@ -533,11 +548,19 @@ export async function cloudSaveSite(site: SiteContent) {
 export async function uploadMediaFile(file: File): Promise<string> {
   if (supabase) {
     const path = `${Date.now()}-${file.name.replace(/\s+/g, '-')}`
-    const { error } = await supabase.storage.from('media').upload(path, file)
-    if (!error) {
-      const { data } = supabase.storage.from('media').getPublicUrl(path)
-      return data.publicUrl
+    const { error } = await supabase.storage.from('media').upload(path, file, {
+      cacheControl: '0',
+      upsert: false,
+    })
+    if (error) {
+      throw new Error(
+        error.message.includes('row-level security') || error.message.includes('policy')
+          ? 'Log in with your admin email, then upload again so every browser can see the file.'
+          : `Upload failed: ${error.message}`,
+      )
     }
+    const { data } = supabase.storage.from('media').getPublicUrl(path)
+    return data.publicUrl
   }
   if (file.type.startsWith('image/')) return compressImageFile(file)
   return readAsDataUrl(file)

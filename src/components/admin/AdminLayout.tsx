@@ -64,7 +64,7 @@ function AdminShell({
   open: boolean
   setOpen: (value: boolean | ((prev: boolean) => boolean)) => void
 }) {
-  const { syncError, messages, orders, site: rawSite } = useStore()
+  const { syncError, messages, orders, site: rawSite, loading } = useStore()
   const site = normalizeSite(rawSite)
   const unread = (messages ?? []).filter((item) => !item.read).length
   const pendingOrders = orders.filter((order) => order.status === 'pending').length
@@ -182,7 +182,13 @@ function AdminShell({
               Saved on this device. Cloud sync: {syncError}
             </p>
           ) : null}
-          <Outlet />
+          {loading ? (
+            <p className="mb-4 rounded-xl border border-gold/20 bg-black/20 px-3 py-8 text-center text-gold">
+              Loading live website data...
+            </p>
+          ) : (
+            <Outlet />
+          )}
         </div>
       </div>
     </div>

@@ -41,7 +41,7 @@ import {
 import { isSupabaseEnabled } from '@/lib/supabase'
 import { applyIncomingOrder, DuplicateProductUnitError, hasSameProductUnitOrder } from '@/lib/mergeOrder'
 import { readAttribution } from '@/lib/metaPixel'
-import { normalizeLanding, normalizeSite } from '@/lib/seed'
+import { isDemoLandingMedia, normalizeLanding, normalizeSite } from '@/lib/seed'
 
 type StoreContextValue = StoreSnapshot & {
   loading: boolean
@@ -80,6 +80,19 @@ function markLocalCmsWrite(at = '') {
   if (at) publishedCmsAt = at
 }
 
+function publishedProducts(cloud: StoreSnapshot['products'] | undefined, prev: StoreSnapshot['products']) {
+  return cloud?.length ? cloud : prev
+}
+
+function publishedMedia(
+  cloud: StoreSnapshot['media'] | undefined,
+  prev: StoreSnapshot['media'],
+  hasMedia?: boolean,
+) {
+  if (hasMedia === false || !Array.isArray(cloud)) return prev
+  return cloud.filter((item) => !isDemoLandingMedia(item))
+}
+
 function applyRemoteCms(
   prev: StoreSnapshot,
   cloud: Partial<StoreSnapshot> & { hasLanding?: boolean; hasMedia?: boolean },
@@ -89,32 +102,28 @@ function applyRemoteCms(
   const cloudTs = cloud.cmsUpdatedAt || ''
   const keepLocal =
     !force &&
-    (Date.now() < ignoreRemoteCmsUntil ||
-      cmsTime(publishedCmsAt) > cmsTime(cloudTs) ||
-      cmsTime(localTs) > cmsTime(cloudTs))
+    (Date.now() < ignoreRemoteCmsUntil || cmsTime(publishedCmsAt) > cmsTime(cloudTs))
   if (keepLocal) {
     return persist({
       ...prev,
-      products: cloud.products ?? prev.products,
       orders: cloud.orders ?? prev.orders,
-      slides: cloud.slides?.length ? cloud.slides : prev.slides,
       messages: cloud.messages?.length ? cloud.messages : prev.messages ?? [],
     })
   }
   if (cloud.hasLanding !== true) {
     return persist({
       ...prev,
-      products: cloud.products ?? prev.products,
+      products: publishedProducts(cloud.products, prev.products),
       orders: cloud.orders ?? prev.orders,
       slides: cloud.slides?.length ? cloud.slides : prev.slides,
       messages: cloud.messages?.length ? cloud.messages : prev.messages ?? [],
-      media: cloud.hasMedia === false || !Array.isArray(cloud.media) ? prev.media : cloud.media,
+      media: publishedMedia(cloud.media, prev.media, cloud.hasMedia),
       site: cloud.site ? normalizeSite(cloud.site) : prev.site,
     })
   }
   const nextLanding = normalizeLanding(cloud.landing)
   const nextSite = cloud.site ? normalizeSite(cloud.site) : prev.site
-  const nextMedia = cloud.hasMedia === false || !Array.isArray(cloud.media) ? prev.media : cloud.media
+  const nextMedia = publishedMedia(cloud.media, prev.media, cloud.hasMedia)
   if (
     JSON.stringify(nextLanding) === JSON.stringify(normalizeLanding(prev.landing)) &&
     JSON.stringify(nextSite) === JSON.stringify(normalizeSite(prev.site)) &&
@@ -122,7 +131,7 @@ function applyRemoteCms(
   ) {
     return persist({
       ...prev,
-      products: cloud.products ?? prev.products,
+      products: publishedProducts(cloud.products, prev.products),
       orders: cloud.orders ?? prev.orders,
       slides: cloud.slides?.length ? cloud.slides : prev.slides,
       messages: cloud.messages?.length ? cloud.messages : prev.messages ?? [],
@@ -131,7 +140,7 @@ function applyRemoteCms(
   }
   return persist({
     ...prev,
-    products: cloud.products ?? prev.products,
+    products: publishedProducts(cloud.products, prev.products),
     orders: cloud.orders ?? prev.orders,
     slides: cloud.slides?.length ? cloud.slides : prev.slides,
     messages: cloud.messages?.length ? cloud.messages : prev.messages ?? [],
@@ -190,7 +199,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     fetchCloudSnapshot()
       .then((cloud) => {
         if (cancelled || !cloud) return
-        setSnapshot((prev) => applyRemoteCms(prev, cloud))
+        setSnapshot((prev) => applyRemoteCms(prev, cloud, true))
       })
       .catch((error: unknown) => {
         if (!cancelled) setSyncError(error instanceof Error ? error.message : 'Cloud load failed')
@@ -205,7 +214,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     return onLocalSnapshotChange(() => {
-      setSnapshot(loadSnapshot())
+      setSnapshot((prev) => {
+        const next = loadSnapshot()
+        if (!isSupabaseEnabled) return next
+        return {
+          ...prev,
+          orders: next.orders,
+          messages: next.messages,
+          customers: next.customers,
+        }
+      })
     })
   }, [])
 
@@ -286,21 +304,33 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const saveProduct = useCallback(
     async (product: Product) => {
+      if (
+        isSupabaseEnabled &&
+        (product.image.startsWith('data:') ||
+          product.image.startsWith('blob:') ||
+          product.gallery.some((url) => url.startsWith('data:') || url.startsWith('blob:')))
+      ) {
+        throw new Error(
+          'Photo stayed only in this browser. Upload again, wait until it finishes, then Save.',
+        )
+      }
+      markLocalCmsWrite()
       commit((prev) => ({
         ...prev,
         products: prev.products.some((item) => item.id === product.id)
           ? prev.products.map((item) => (item.id === product.id ? product : item))
           : [product, ...prev.products],
       }))
-      await sync(() => cloudUpsertProduct(product))
+      await sync(() => cloudUpsertProduct(product), true)
     },
     [commit, sync],
   )
 
   const deleteProduct = useCallback(
     async (id: string) => {
+      markLocalCmsWrite()
       commit((prev) => ({ ...prev, products: prev.products.filter((item) => item.id !== id) }))
-      await sync(() => cloudDeleteProduct(id))
+      await sync(() => cloudDeleteProduct(id), true)
     },
     [commit, sync],
   )
@@ -361,21 +391,23 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const saveSlide = useCallback(
     async (slide: CarouselSlide) => {
+      markLocalCmsWrite()
       commit((prev) => ({
         ...prev,
         slides: prev.slides.some((item) => item.id === slide.id)
           ? prev.slides.map((item) => (item.id === slide.id ? slide : item))
           : [...prev.slides, slide],
       }))
-      await sync(() => cloudUpsertSlide(slide))
+      await sync(() => cloudUpsertSlide(slide), true)
     },
     [commit, sync],
   )
 
   const deleteSlide = useCallback(
     async (id: string) => {
+      markLocalCmsWrite()
       commit((prev) => ({ ...prev, slides: prev.slides.filter((item) => item.id !== id) }))
-      await sync(() => cloudDeleteSlide(id))
+      await sync(() => cloudDeleteSlide(id), true)
     },
     [commit, sync],
   )
@@ -384,6 +416,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const saveMedia = useCallback(
     async (item: LandingMedia) => {
+      if (isSupabaseEnabled && (item.url.startsWith('data:') || item.url.startsWith('blob:'))) {
+        throw new Error(
+          'Photo/video stayed only in this browser. Upload again and wait until it finishes, then click Save.',
+        )
+      }
       const cmsUpdatedAt = stamp()
       markLocalCmsWrite(cmsUpdatedAt)
       commit((prev) => ({
@@ -427,7 +464,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           got.offerTitle !== want.offerTitle ||
           got.heroTitle !== want.heroTitle ||
           got.offerPrice !== want.offerPrice ||
-          got.ctaLabel !== want.ctaLabel
+          got.ctaLabel !== want.ctaLabel ||
+          JSON.stringify(got.offerMediaIds) !== JSON.stringify(want.offerMediaIds)
         ) {
           throw new Error(
             'Log in with your admin email and password, then click Save again so /offer can show this landing.',

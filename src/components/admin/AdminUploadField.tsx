@@ -30,8 +30,8 @@ export function AdminUploadField({
     setUploading(true)
     try {
       onChange(await uploadMediaFile(file))
-    } catch {
-      setError('Upload failed. Try a smaller file or paste a URL.')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Upload failed. Try a smaller file or paste a URL.')
     } finally {
       setUploading(false)
     }
@@ -97,8 +97,8 @@ export function AdminGalleryUpload({
         uploaded.push(await uploadMediaFile(file))
       }
       onChange([...urls, ...uploaded].join('\n'))
-    } catch {
-      setError('Upload failed. Try a smaller image or paste URLs.')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Upload failed. Try a smaller image or paste URLs.')
     } finally {
       setUploading(false)
     }

@@ -1,8 +1,9 @@
 import type { Customer, LandingContent, LandingMedia, Order, SiteContent, StoreSnapshot } from './types'
 import { createSeedSnapshot, normalizeLanding, normalizeSite } from './seed'
+import { isSupabaseEnabled } from './supabase'
 
-const KEY = 'js-agro-shop-store-v5'
-const CMS_KEY = 'js-agro-shop-cms-v1'
+const KEY = 'js-agro-shop-store-v6'
+const CMS_KEY = 'js-agro-shop-cms-v2'
 
 export function customersFromOrders(orders: Order[]): Customer[] {
   const map = new Map<string, Customer>()
@@ -39,6 +40,7 @@ export function loadSnapshot(): StoreSnapshot {
     const raw = localStorage.getItem(KEY)
     if (!raw) {
       const seed = createSeedSnapshot()
+      if (isSupabaseEnabled) return seed
       return saveSnapshot(seed)
     }
     const parsed = JSON.parse(raw) as Partial<StoreSnapshot>
@@ -63,6 +65,15 @@ export function loadSnapshot(): StoreSnapshot {
       ...snapshot.landing,
       heroSubtitle: snapshot.landing.heroSubtitle.replaceAll('৯.৮ হাজার', '২০ হাজার'),
     })
+    if (isSupabaseEnabled) {
+      snapshot.products = seed.products
+      snapshot.slides = seed.slides
+      snapshot.landing = seed.landing
+      snapshot.site = seed.site
+      snapshot.media = []
+      snapshot.cmsUpdatedAt = undefined
+      return snapshot
+    }
     const cms = loadCmsBundle()
     if (cms && (!snapshot.cmsUpdatedAt || cms.cmsUpdatedAt >= snapshot.cmsUpdatedAt)) {
       snapshot.landing = normalizeLanding(cms.landing)
@@ -86,7 +97,18 @@ export function saveSnapshot(snapshot: StoreSnapshot) {
     cmsUpdatedAt: snapshot.cmsUpdatedAt,
   }
   try {
-    localStorage.setItem(KEY, JSON.stringify(next))
+    const disk = isSupabaseEnabled
+      ? {
+          ...next,
+          products: [],
+          slides: [],
+          media: [],
+          landing: undefined,
+          site: undefined,
+          cmsUpdatedAt: undefined,
+        }
+      : next
+    localStorage.setItem(KEY, JSON.stringify(disk))
   } catch {
     // Keep in-memory changes working even if storage is full.
   }
@@ -124,7 +146,7 @@ function saveCmsBundle(
   media: LandingMedia[],
   cmsUpdatedAt?: string,
 ) {
-  if (!cmsUpdatedAt) return
+  if (isSupabaseEnabled || !cmsUpdatedAt) return
   const bundle: CmsBundle = { landing, site, media, cmsUpdatedAt }
   try {
     localStorage.setItem(CMS_KEY, JSON.stringify(bundle))

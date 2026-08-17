@@ -2,7 +2,7 @@ import { CheckoutForm } from '@/components/order/CheckoutForm'
 import { SafeImage } from '@/components/ui/SafeImage'
 import { useStore } from '@/context/StoreContext'
 import { trackAddToCart, trackInitiateCheckout, trackOnce, trackViewContent } from '@/lib/metaPixel'
-import { normalizeLanding, LANDING_OFFER_ID } from '@/lib/seed'
+import { normalizeLanding, LANDING_OFFER_ID, isDemoLandingMedia, seedMedia } from '@/lib/seed'
 import type { Product } from '@/lib/types'
 import { formatTaka, freshMediaUrl } from '@/lib/utils'
 import { useEffect, useMemo, type MouseEvent } from 'react'
@@ -86,7 +86,7 @@ export function LandingPage() {
   const { landing, media, cmsUpdatedAt, reloadCms } = useStore()
   const { pathname } = useLocation()
   const content = normalizeLanding(landing)
-  const mediaStamp = cmsUpdatedAt || ''
+  const mediaStamp = cmsUpdatedAt || 'live'
 
   useEffect(() => {
     void reloadCms(true)
@@ -103,13 +103,16 @@ export function LandingPage() {
     }
   }, [reloadCms])
   const gallery = useMemo(() => {
-    const list = media ?? []
-    const byId = new Map(list.map((item) => [item.id, item]))
-    const picked = content.offerMediaIds.length
-      ? content.offerMediaIds
-          .map((id) => byId.get(id))
-          .filter((item): item is NonNullable<typeof item> => Boolean(item))
-      : list.filter((item) => item.active).sort((a, b) => a.sortOrder - b.sortOrder)
+    const live = (media ?? []).filter((item) => !isDemoLandingMedia(item) && item.active !== false)
+    const byId = new Map(live.map((item) => [item.id, item]))
+    const ticked = content.offerMediaIds
+      .map((id) => byId.get(id))
+      .filter((item): item is NonNullable<typeof item> => Boolean(item))
+    const rest = live
+      .filter((item) => !content.offerMediaIds.includes(item.id))
+      .sort((a, b) => a.sortOrder - b.sortOrder)
+    const uploaded = ticked.length ? [...ticked, ...rest] : rest
+    const picked = uploaded.length ? uploaded : seedMedia.filter((item) => item.active)
     return picked.map((item) => ({ ...item, url: freshMediaUrl(item.url, mediaStamp) }))
   }, [content.offerMediaIds, media, mediaStamp])
   const coverImage =
@@ -258,50 +261,6 @@ export function LandingPage() {
             </h2>
           ) : null}
           {content.storyBody ? <p className="mx-auto max-w-3xl leading-relaxed">{content.storyBody}</p> : null}
-          {gallery.length ? (
-            <div className="mx-auto mt-10 flex max-w-5xl flex-wrap justify-center gap-4">
-              {gallery.map((item) => (
-                <figure
-                  key={item.id}
-                  className="w-full max-w-sm overflow-hidden rounded-xl border-4 border-gold bg-leaf-deep sm:w-[calc(50%-0.5rem)] lg:w-[calc(33.333%-0.7rem)]"
-                >
-                  {item.type === 'video' ? (
-                    <div>
-                      <div className="aspect-video">
-                        {youtubeId(item.url) ? (
-                          <iframe
-                            className="size-full"
-                            src={`https://www.youtube.com/embed/${youtubeId(item.url)}`}
-                            title={item.title}
-                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                            allowFullScreen
-                          />
-                        ) : (
-                          <video src={item.url} controls className="size-full object-cover" />
-                        )}
-                      </div>
-                      <OrderButton
-                        label={orderLabel}
-                        onClick={goToProductSelect}
-                        className="block bg-gold py-3 text-lg font-extrabold text-black"
-                      />
-                    </div>
-                  ) : (
-                    <a href="#product-select" onClick={goToProductSelect} className="block">
-                      <SafeImage src={item.url} alt={item.title} className="aspect-square w-full object-cover" />
-                      <span className="block bg-gold py-3 text-lg font-extrabold text-black">{orderLabel}</span>
-                    </a>
-                  )}
-                  {(item.title || item.caption) && (
-                    <figcaption className="bg-leaf px-3 py-2 text-center text-sm text-gold">
-                      <p className="font-bold">{item.title}</p>
-                      {item.caption ? <p className="text-cream/80">{item.caption}</p> : null}
-                    </figcaption>
-                  )}
-                </figure>
-              ))}
-            </div>
-          ) : null}
         </section>
       ) : null}
 
@@ -317,6 +276,53 @@ export function LandingPage() {
               ))}
             </ul>
           ) : null}
+        </section>
+      ) : null}
+
+      {gallery.length ? (
+        <section className="px-4 py-12">
+          <div className="mx-auto flex max-w-5xl flex-wrap justify-center gap-4">
+            {gallery.map((item) => (
+              <figure
+                key={item.id}
+                className="w-full max-w-sm overflow-hidden rounded-xl border-4 border-gold bg-leaf-deep sm:w-[calc(50%-0.5rem)] lg:w-[calc(33.333%-0.7rem)]"
+              >
+                {item.type === 'video' ? (
+                  <div>
+                    <div className="aspect-video">
+                      {youtubeId(item.url) ? (
+                        <iframe
+                          className="size-full"
+                          src={`https://www.youtube.com/embed/${youtubeId(item.url)}`}
+                          title={item.title}
+                          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                          allowFullScreen
+                        />
+                      ) : (
+                        <video src={item.url} controls className="size-full object-cover" />
+                      )}
+                    </div>
+                    <OrderButton
+                      label={orderLabel}
+                      onClick={goToProductSelect}
+                      className="block bg-gold py-3 text-lg font-extrabold text-black"
+                    />
+                  </div>
+                ) : (
+                  <a href="#product-select" onClick={goToProductSelect} className="block">
+                    <SafeImage src={item.url} alt={item.title} fallback={null} className="aspect-square w-full object-cover" />
+                    <span className="block bg-gold py-3 text-lg font-extrabold text-black">{orderLabel}</span>
+                  </a>
+                )}
+                {(item.title || item.caption) && (
+                  <figcaption className="bg-leaf px-3 py-2 text-center text-sm text-gold">
+                    <p className="font-bold">{item.title}</p>
+                    {item.caption ? <p className="text-cream/80">{item.caption}</p> : null}
+                  </figcaption>
+                )}
+              </figure>
+            ))}
+          </div>
         </section>
       ) : null}
 

@@ -355,6 +355,16 @@ export const seedSlides: CarouselSlide[] = [
   },
 ]
 
+export function isDemoLandingMedia(item: { id?: string; url?: string }) {
+  const url = item.url || ''
+  if (!url) return true
+  if (url.startsWith('data:') || url.startsWith('blob:')) return true
+  if (url.startsWith('/images/')) return true
+  if (url.includes('interactive-examples.mdn')) return true
+  if (/^media_[1-7]$/.test(item.id || '')) return true
+  return false
+}
+
 export const seedMedia: LandingMedia[] = [
   { id: 'media_1', type: 'image', url: img('fruits.jpg'), title: 'হাইব্রিড পেঁপে', caption: 'শতভাগ জাতের গ্যারান্টি', sortOrder: 1, active: true },
   { id: 'media_2', type: 'image', url: img('mango-thai.jpg'), title: 'হিমসাগর / আম্রপালি', caption: 'দেশি ও বিদেশি আমের চারা', sortOrder: 2, active: true },
