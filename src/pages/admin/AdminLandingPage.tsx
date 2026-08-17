@@ -4,7 +4,7 @@ import { useConfirm } from '@/components/admin/ConfirmDialog'
 import { AdminUploadField } from '@/components/admin/AdminUploadField'
 import { ShopSettingsFields } from '@/components/admin/ShopSettingsFields'
 import { useStore } from '@/context/StoreContext'
-import { normalizeLanding, normalizeSite, LANDING_OFFER_ID, catalogProducts } from '@/lib/seed'
+import { normalizeLanding, normalizeSite, LANDING_OFFER_ID } from '@/lib/seed'
 import type { LandingContent, LandingMedia } from '@/lib/types'
 import { cn, formatTaka, uid } from '@/lib/utils'
 
@@ -53,7 +53,7 @@ function SaveBtn({ saving }: { saving: boolean }) {
 }
 
 export function AdminLandingPage() {
-  const { landing, saveLanding, saveSite, site, media, saveMedia, deleteMedia, syncError, products } = useStore()
+  const { landing, saveLanding, saveSite, site, media, saveMedia, deleteMedia, syncError } = useStore()
   const confirm = useConfirm()
   const [form, setForm] = useState(() => normalizeLanding(landing))
   const [siteForm, setSiteForm] = useState(() => normalizeSite(site))
@@ -69,8 +69,6 @@ export function AdminLandingPage() {
   const landingChoices = pickedMedia.length ? pickedMedia : sortedMedia
   const landingCoverId = form.offerMediaIds[0] || landingChoices[0]?.id || ''
   const landingCover = sortedMedia.find((item) => item.id === landingCoverId)
-  const homeProducts = catalogProducts(products)
-  const linkedProduct = homeProducts.find((item) => item.id === form.offerProductId)
   const landingKey = JSON.stringify(landing)
   const siteKey = JSON.stringify(site)
   const dirtyRef = useRef(false)
@@ -109,7 +107,7 @@ export function AdminLandingPage() {
   }, [])
 
   async function persistLanding() {
-    const next = normalizeLanding(formRef.current)
+    const next = normalizeLanding({ ...formRef.current, offerProductId: LANDING_OFFER_ID })
     await saveLanding(next)
     dirtyRef.current = false
     lastSavedLanding.current = JSON.stringify(next)
@@ -160,7 +158,7 @@ export function AdminLandingPage() {
       const item: LandingMedia = { id: editingId ?? uid('media'), ...upload }
       await saveMedia(item)
       const nextIds = form.offerMediaIds.includes(item.id) ? form.offerMediaIds : [...form.offerMediaIds, item.id]
-      const nextForm = normalizeLanding({ ...form, offerMediaIds: nextIds })
+      const nextForm = normalizeLanding({ ...form, offerMediaIds: nextIds, offerProductId: LANDING_OFFER_ID })
       setForm(nextForm)
       formRef.current = nextForm
       await saveLanding(nextForm)
@@ -197,6 +195,7 @@ export function AdminLandingPage() {
       const nextForm = normalizeLanding({
         ...form,
         offerMediaIds: form.offerMediaIds.filter((id) => id !== item.id),
+        offerProductId: LANDING_OFFER_ID,
       })
       setForm(nextForm)
       formRef.current = nextForm
@@ -303,7 +302,7 @@ export function AdminLandingPage() {
         <section id="landing-product" className="space-y-4 rounded-2xl border border-white/10 bg-white/5 p-4">
           <p className="text-sm font-semibold text-zinc-200">Landing product — title, price, photos</p>
           <p className="text-xs text-zinc-500">
-            Title, price and photos here are only for /offer. Connect a Home product below so orders stay linked to it — Home name and price do not change.
+            Tick photos, set title and price. That becomes the /offer product — not a Home catalog item.
           </p>
 
           <div>
@@ -407,7 +406,7 @@ export function AdminLandingPage() {
               placeholder="মিয়াজাকি আম (সূর্য ডিম)"
               className="mt-1 w-full rounded-xl bg-white/5 px-3 py-3 text-zinc-100"
             />
-            <span className="mt-1 block text-xs text-zinc-500">Shows on /offer. Does not change the Home product name.</span>
+            <span className="mt-1 block text-xs text-zinc-500">Big heading on /offer.</span>
           </label>
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="block text-sm text-zinc-400">
@@ -433,13 +432,11 @@ export function AdminLandingPage() {
               />
             </label>
           </div>
-          <p className="text-xs text-zinc-500">Landing price is only for /offer. Home product price stays as it is.</p>
+          <p className="text-xs text-zinc-500">This title, price and photo are the /offer product. They do not change Home page products.</p>
           <label className="block text-sm text-zinc-400">
-            Connect Home product
+            Landing product
             <div className="mt-1 flex items-center gap-3 rounded-xl bg-[#0b1210] px-3 py-2">
-              {linkedProduct?.image ? (
-                <img src={linkedProduct.image} alt="" className="size-12 shrink-0 rounded-lg object-cover" />
-              ) : landingCover?.url && landingCover.type === 'image' ? (
+              {landingCover?.url && landingCover.type === 'image' ? (
                 <img src={landingCover.url} alt="" className="size-12 shrink-0 rounded-lg object-cover" />
               ) : (
                 <span className="grid size-12 shrink-0 place-items-center rounded-lg bg-white/10 text-[10px] text-zinc-500">
@@ -447,43 +444,32 @@ export function AdminLandingPage() {
                 </span>
               )}
               <div className="relative min-w-0 flex-1">
-                <select
-                  value={form.offerProductId || LANDING_OFFER_ID}
-                  onChange={(e) => patchForm({ offerProductId: e.target.value || LANDING_OFFER_ID })}
-                  className="admin-select w-full appearance-none rounded-xl bg-transparent py-2 pr-8 text-zinc-100"
-                >
-                  <option value={LANDING_OFFER_ID}>Landing only — not a Home product</option>
-                  {homeProducts.map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.name} — {formatTaka(item.price)}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown className="pointer-events-none absolute right-1 top-1/2 size-4 -translate-y-1/2 text-zinc-400" />
+                {landingChoices.length ? (
+                  <>
+                    <select
+                      value={landingCoverId}
+                      onChange={(e) => selectLandingCover(e.target.value)}
+                      className="admin-select w-full appearance-none rounded-xl bg-transparent py-2 pr-8 text-zinc-100"
+                    >
+                      {landingChoices.map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {(form.offerTitle || item.title || 'Landing product').trim()} — {formatTaka(form.offerPrice || 0)}
+                        </option>
+                      ))}
+                    </select>
+                    <ChevronDown className="pointer-events-none absolute right-1 top-1/2 size-4 -translate-y-1/2 text-zinc-400" />
+                  </>
+                ) : (
+                  <p className="py-2 font-semibold text-zinc-100">
+                    {(form.offerTitle || 'Set title and photos above').trim()} — {formatTaka(form.offerPrice || 0)}
+                  </p>
+                )}
               </div>
             </div>
             <span className="mt-1 block text-xs text-zinc-500">
-              {linkedProduct
-                ? `Orders on /offer are linked to ${linkedProduct.name}. /offer still uses the title, price and photos above.`
-                : 'Pick a Home product to link orders. Leave as Landing only if this offer should stay separate.'}
+              This product shows on /offer checkout. The dropdown picks which ticked photo is the cover — not a Home product.
             </span>
           </label>
-          {landingChoices.length > 1 ? (
-            <label className="block text-sm text-zinc-400">
-              Cover photo on /offer
-              <select
-                value={landingCoverId}
-                onChange={(e) => selectLandingCover(e.target.value)}
-                className="admin-select mt-1 w-full rounded-xl bg-[#0b1210] px-3 py-3 text-zinc-100"
-              >
-                {landingChoices.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.title || 'Untitled'}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : null}
           <SaveBtn saving={saving} />
         </section>
 

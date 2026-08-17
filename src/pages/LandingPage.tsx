@@ -2,7 +2,7 @@ import { CheckoutForm } from '@/components/order/CheckoutForm'
 import { SafeImage } from '@/components/ui/SafeImage'
 import { useStore } from '@/context/StoreContext'
 import { trackAddToCart, trackInitiateCheckout, trackOnce, trackViewContent } from '@/lib/metaPixel'
-import { normalizeLanding, LANDING_OFFER_ID, isCatalogProductId } from '@/lib/seed'
+import { normalizeLanding, LANDING_OFFER_ID } from '@/lib/seed'
 import type { Product } from '@/lib/types'
 import { formatTaka } from '@/lib/utils'
 import { useEffect, useMemo, type MouseEvent } from 'react'
@@ -66,7 +66,7 @@ function trackLandingCheckout(
 }
 
 export function LandingPage() {
-  const { landing, media, products } = useStore()
+  const { landing, media } = useStore()
   const { pathname } = useLocation()
   const content = normalizeLanding(landing)
   const gallery = useMemo(() => {
@@ -84,36 +84,29 @@ export function LandingPage() {
     gallery[0]?.url ||
     ''
   const landingProduct = useMemo<Product>(() => {
-    const linked = isCatalogProductId(content.offerProductId)
-      ? products.find((item) => item.id === content.offerProductId)
-      : undefined
-    const name = content.offerTitle.trim() || linked?.name || content.heroTitle || 'অফার পণ্য'
+    const name = content.offerTitle.trim() || content.heroTitle || 'অফার পণ্য'
     return {
-      id: linked?.id ?? LANDING_OFFER_ID,
+      id: LANDING_OFFER_ID,
       name,
-      headline: linked?.headline ?? '',
-      description: linked?.description ?? '',
-      price: content.offerPrice > 0 ? content.offerPrice : linked?.price ?? 0,
+      headline: '',
+      description: '',
+      price: content.offerPrice > 0 ? content.offerPrice : 0,
       comparePrice:
-        content.offerComparePrice && content.offerComparePrice > 0
-          ? content.offerComparePrice
-          : linked?.comparePrice ?? null,
-      image: coverImage || linked?.image || '',
+        content.offerComparePrice && content.offerComparePrice > 0 ? content.offerComparePrice : null,
+      image: coverImage,
       gallery: gallery.filter((item) => item.type === 'image').map((item) => item.url),
-      category: linked?.category || 'offer',
-      stock: linked?.stock ?? 99,
+      category: 'offer',
+      stock: 99,
       featured: true,
-      createdAt: linked?.createdAt ?? new Date().toISOString(),
+      createdAt: new Date().toISOString(),
     }
   }, [
     content.heroTitle,
     content.offerComparePrice,
     content.offerPrice,
-    content.offerProductId,
     content.offerTitle,
     coverImage,
     gallery,
-    products,
   ])
 
   useEffect(() => {
