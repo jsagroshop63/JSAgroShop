@@ -2,7 +2,7 @@ import { CheckoutForm } from '@/components/order/CheckoutForm'
 import { SafeImage } from '@/components/ui/SafeImage'
 import { useStore } from '@/context/StoreContext'
 import { trackAddToCart, trackInitiateCheckout, trackOnce, trackViewContent } from '@/lib/metaPixel'
-import { normalizeLanding } from '@/lib/seed'
+import { normalizeLanding, LANDING_OFFER_ID, isCatalogProductId } from '@/lib/seed'
 import type { Product } from '@/lib/types'
 import { formatTaka } from '@/lib/utils'
 import { useEffect, useMemo, type MouseEvent } from 'react'
@@ -66,7 +66,7 @@ function trackLandingCheckout(
 }
 
 export function LandingPage() {
-  const { landing, media } = useStore()
+  const { landing, media, products } = useStore()
   const { pathname } = useLocation()
   const content = normalizeLanding(landing)
   const gallery = useMemo(() => {
@@ -84,23 +84,37 @@ export function LandingPage() {
     gallery[0]?.url ||
     ''
   const landingProduct = useMemo<Product>(() => {
-    const name = content.offerTitle.trim() || content.heroTitle || 'অফার পণ্য'
+    const linked = isCatalogProductId(content.offerProductId)
+      ? products.find((item) => item.id === content.offerProductId)
+      : undefined
+    const name = content.offerTitle.trim() || linked?.name || content.heroTitle || 'অফার পণ্য'
     return {
-      id: 'prod_landing_offer',
+      id: linked?.id ?? LANDING_OFFER_ID,
       name,
-      headline: '',
-      description: '',
-      price: content.offerPrice > 0 ? content.offerPrice : 0,
+      headline: linked?.headline ?? '',
+      description: linked?.description ?? '',
+      price: content.offerPrice > 0 ? content.offerPrice : linked?.price ?? 0,
       comparePrice:
-        content.offerComparePrice && content.offerComparePrice > 0 ? content.offerComparePrice : null,
-      image: coverImage,
+        content.offerComparePrice && content.offerComparePrice > 0
+          ? content.offerComparePrice
+          : linked?.comparePrice ?? null,
+      image: coverImage || linked?.image || '',
       gallery: gallery.filter((item) => item.type === 'image').map((item) => item.url),
-      category: 'offer',
-      stock: 99,
+      category: linked?.category || 'offer',
+      stock: linked?.stock ?? 99,
       featured: true,
-      createdAt: new Date().toISOString(),
+      createdAt: linked?.createdAt ?? new Date().toISOString(),
     }
-  }, [content.heroTitle, content.offerComparePrice, content.offerPrice, content.offerTitle, coverImage, gallery])
+  }, [
+    content.heroTitle,
+    content.offerComparePrice,
+    content.offerPrice,
+    content.offerProductId,
+    content.offerTitle,
+    coverImage,
+    gallery,
+    products,
+  ])
 
   useEffect(() => {
     if (!landingProduct) return
@@ -112,6 +126,10 @@ export function LandingPage() {
     })
   }, [landingProduct])
 
+  const checkoutProducts = useMemo(
+    () => [{ product: landingProduct, quantity: 1 }],
+    [landingProduct],
+  )
   const packageLines = parsePackageItems(content.packageItems)
   const showHeroCta = Boolean(content.ctaLabel.trim())
   const showPackage = Boolean(content.packageTitle.trim() || packageLines.length)
@@ -310,9 +328,11 @@ export function LandingPage() {
 
       <section className="bg-cream px-4 py-12">
         <div className="mx-auto max-w-6xl">
-          <p className="mx-auto mb-6 max-w-xl text-base leading-relaxed text-leaf-deep/80">
-            আপনার নাম, ঠিকানা ও মোবাইল নম্বর দিয়ে অর্ডারটি সম্পন্ন করুন
-          </p>
+          {content.checkoutTitle.trim() ? (
+            <p className="mx-auto mb-6 max-w-xl text-base leading-relaxed text-leaf-deep/80">
+              {content.checkoutTitle}
+            </p>
+          ) : null}
           <CheckoutForm
             alignCenter
             productTitle={landingProduct.name}
@@ -320,7 +340,7 @@ export function LandingPage() {
             orderTitle={content.checkoutOrderTitle}
             submitLabel={content.checkoutSubmitLabel}
             codNote={content.checkoutCodNote}
-            products={[{ product: landingProduct, quantity: 1 }]}
+            products={checkoutProducts}
           />
         </div>
       </section>

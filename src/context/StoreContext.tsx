@@ -65,37 +65,67 @@ type StoreContextValue = StoreSnapshot & {
 
 const StoreContext = createContext<StoreContextValue | null>(null)
 
+let ignoreRemoteCmsUntil = 0
+let publishedCmsAt = ''
+
+function cmsTime(value?: string) {
+  if (!value) return 0
+  const n = Date.parse(value)
+  return Number.isFinite(n) ? n : 0
+}
+
+function markLocalCmsWrite(at = '') {
+  ignoreRemoteCmsUntil = Date.now() + 20000
+  if (at) publishedCmsAt = at
+}
+
 function applyRemoteCms(
   prev: StoreSnapshot,
-  cloud: Pick<StoreSnapshot, 'landing' | 'media' | 'site' | 'cmsUpdatedAt'> & Partial<StoreSnapshot>,
+  cloud: Partial<StoreSnapshot> & { hasLanding?: boolean; hasMedia?: boolean },
 ): StoreSnapshot {
   const localTs = prev.cmsUpdatedAt || ''
   const cloudTs = cloud.cmsUpdatedAt || ''
-  const keepLocal = Boolean(localTs && cloudTs && localTs > cloudTs)
+  const hasLanding = cloud.hasLanding === true
+  const keepLocal =
+    Date.now() < ignoreRemoteCmsUntil ||
+    !hasLanding ||
+    cmsTime(localTs) > cmsTime(cloudTs) ||
+    cmsTime(publishedCmsAt) > cmsTime(cloudTs)
   if (keepLocal) {
     return persist({
       ...prev,
-      ...cloud,
-      landing: prev.landing,
-      media: prev.media,
-      site: prev.site,
-      cmsUpdatedAt: prev.cmsUpdatedAt,
       products: cloud.products ?? prev.products,
       orders: cloud.orders ?? prev.orders,
       slides: cloud.slides?.length ? cloud.slides : prev.slides,
       messages: cloud.messages?.length ? cloud.messages : prev.messages ?? [],
     })
   }
+  const nextLanding = normalizeLanding(cloud.landing)
+  const nextSite = cloud.site ? normalizeSite(cloud.site) : prev.site
+  const nextMedia = cloud.hasMedia === false || !Array.isArray(cloud.media) ? prev.media : cloud.media
+  if (
+    JSON.stringify(nextLanding) === JSON.stringify(normalizeLanding(prev.landing)) &&
+    JSON.stringify(nextSite) === JSON.stringify(normalizeSite(prev.site)) &&
+    JSON.stringify(nextMedia) === JSON.stringify(prev.media)
+  ) {
+    return persist({
+      ...prev,
+      products: cloud.products ?? prev.products,
+      orders: cloud.orders ?? prev.orders,
+      slides: cloud.slides?.length ? cloud.slides : prev.slides,
+      messages: cloud.messages?.length ? cloud.messages : prev.messages ?? [],
+      cmsUpdatedAt: cloudTs || localTs,
+    })
+  }
   return persist({
     ...prev,
-    ...cloud,
-    landing: normalizeLanding(cloud.landing),
-    media: cloud.media ?? prev.media,
-    site: normalizeSite(cloud.site ?? prev.site),
     products: cloud.products ?? prev.products,
     orders: cloud.orders ?? prev.orders,
     slides: cloud.slides?.length ? cloud.slides : prev.slides,
     messages: cloud.messages?.length ? cloud.messages : prev.messages ?? [],
+    landing: nextLanding,
+    media: nextMedia,
+    site: nextSite,
     cmsUpdatedAt: cloudTs || localTs,
   })
 }
@@ -342,9 +372,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const saveMedia = useCallback(
     async (item: LandingMedia) => {
+      const cmsUpdatedAt = stamp()
+      markLocalCmsWrite(cmsUpdatedAt)
       commit((prev) => ({
         ...prev,
-        cmsUpdatedAt: stamp(),
+        cmsUpdatedAt,
         media: prev.media.some((row) => row.id === item.id)
           ? prev.media.map((row) => (row.id === item.id ? item : row))
           : [...prev.media, item],
@@ -356,9 +388,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const deleteMedia = useCallback(
     async (id: string) => {
+      const cmsUpdatedAt = stamp()
+      markLocalCmsWrite(cmsUpdatedAt)
       commit((prev) => ({
         ...prev,
-        cmsUpdatedAt: stamp(),
+        cmsUpdatedAt,
         media: prev.media.filter((item) => item.id !== id),
       }))
       await sync(() => cloudDeleteMedia(id), true)
@@ -369,6 +403,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const saveLanding = useCallback(
     async (landing: LandingContent) => {
       const cmsUpdatedAt = stamp()
+      markLocalCmsWrite(cmsUpdatedAt)
       commit((prev) => ({ ...prev, landing, cmsUpdatedAt }))
       await sync(() => cloudSaveLanding(landing, cmsUpdatedAt), true)
     },
@@ -377,7 +412,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const saveSite = useCallback(
     async (site: SiteContent) => {
-      commit((prev) => ({ ...prev, site, cmsUpdatedAt: stamp() }))
+      const cmsUpdatedAt = stamp()
+      markLocalCmsWrite(cmsUpdatedAt)
+      commit((prev) => ({ ...prev, site, cmsUpdatedAt }))
       await sync(() => cloudSaveSite(site), true)
     },
     [commit, sync],

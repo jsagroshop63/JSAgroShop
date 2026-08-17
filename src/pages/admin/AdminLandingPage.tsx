@@ -4,9 +4,9 @@ import { useConfirm } from '@/components/admin/ConfirmDialog'
 import { AdminUploadField } from '@/components/admin/AdminUploadField'
 import { ShopSettingsFields } from '@/components/admin/ShopSettingsFields'
 import { useStore } from '@/context/StoreContext'
-import { normalizeLanding, normalizeSite } from '@/lib/seed'
-import type { LandingMedia } from '@/lib/types'
-import { cn, uid } from '@/lib/utils'
+import { normalizeLanding, normalizeSite, LANDING_OFFER_ID, catalogProducts } from '@/lib/seed'
+import type { LandingContent, LandingMedia } from '@/lib/types'
+import { cn, formatTaka, uid } from '@/lib/utils'
 
 function publicOrigin() {
   if (typeof window === 'undefined') return ''
@@ -40,8 +40,20 @@ const emptyMedia = {
   active: true,
 }
 
+function SaveBtn({ saving }: { saving: boolean }) {
+  return (
+    <button
+      type="submit"
+      disabled={saving}
+      className="rounded-xl bg-gold px-6 py-3 font-bold text-leaf-deep disabled:opacity-60"
+    >
+      {saving ? 'Saving...' : 'Save'}
+    </button>
+  )
+}
+
 export function AdminLandingPage() {
-  const { landing, saveLanding, saveSite, site, media, saveMedia, deleteMedia, syncError } = useStore()
+  const { landing, saveLanding, saveSite, site, media, saveMedia, deleteMedia, syncError, products } = useStore()
   const confirm = useConfirm()
   const [form, setForm] = useState(() => normalizeLanding(landing))
   const [siteForm, setSiteForm] = useState(() => normalizeSite(site))
@@ -57,18 +69,38 @@ export function AdminLandingPage() {
   const landingChoices = pickedMedia.length ? pickedMedia : sortedMedia
   const landingCoverId = form.offerMediaIds[0] || landingChoices[0]?.id || ''
   const landingCover = sortedMedia.find((item) => item.id === landingCoverId)
-  const landingPriceLabel = `৳ ${(form.offerPrice || 0).toLocaleString('en-BD')}`
+  const homeProducts = catalogProducts(products)
+  const linkedProduct = homeProducts.find((item) => item.id === form.offerProductId)
   const landingKey = JSON.stringify(landing)
   const siteKey = JSON.stringify(site)
+  const dirtyRef = useRef(false)
+  const formRef = useRef(form)
+  formRef.current = form
+  const lastSavedLanding = useRef(JSON.stringify(normalizeLanding(form)))
+  const lastSavedSite = useRef(JSON.stringify(normalizeSite(site)))
+  const siteDirtyRef = useRef(false)
+  const siteFormRef = useRef(siteForm)
+  siteFormRef.current = siteForm
+
+  function patchForm(update: Partial<LandingContent> | ((prev: LandingContent) => LandingContent)) {
+    dirtyRef.current = true
+    setForm((prev) => (typeof update === 'function' ? update(prev) : { ...prev, ...update }))
+  }
 
   useEffect(() => {
-    setForm(normalizeLanding(landing))
+    if (dirtyRef.current) return
+    const next = normalizeLanding(landing)
+    setForm(next)
+    lastSavedLanding.current = JSON.stringify(next)
     // Sync only when landing *content* changes, not on every order poll.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [landingKey])
 
   useEffect(() => {
-    setSiteForm(normalizeSite(site))
+    if (siteDirtyRef.current) return
+    const next = normalizeSite(site)
+    setSiteForm(next)
+    lastSavedSite.current = JSON.stringify(next)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [siteKey])
 
@@ -76,21 +108,21 @@ export function AdminLandingPage() {
     setLandingUrl(adsUrl())
   }, [])
 
-  const lastSavedPackage = useRef(
-    JSON.stringify({ title: form.packageTitle, items: form.packageItems }),
-  )
-  useEffect(() => {
-    const payload = JSON.stringify({ title: form.packageTitle, items: form.packageItems })
-    if (payload === lastSavedPackage.current) return
-    const timer = window.setTimeout(() => {
-      lastSavedPackage.current = payload
-      const next = normalizeLanding({ ...form, offerProductId: 'prod_landing_offer' })
-      void saveLanding(next)
-        .then(() => setNotice('Package list saved. It now shows on the landing page.'))
-        .catch((error) => setNotice(error instanceof Error ? error.message : 'Save failed'))
-    }, 800)
-    return () => window.clearTimeout(timer)
-  }, [form, saveLanding])
+  async function persistLanding() {
+    const next = normalizeLanding(formRef.current)
+    await saveLanding(next)
+    dirtyRef.current = false
+    lastSavedLanding.current = JSON.stringify(next)
+    return next
+  }
+
+  async function persistSite() {
+    const next = normalizeSite(siteFormRef.current)
+    await saveSite(next)
+    siteDirtyRef.current = false
+    lastSavedSite.current = JSON.stringify(next)
+    return next
+  }
 
   function resetUpload() {
     setUpload({ ...emptyMedia, sortOrder: media.length + 1 })
@@ -98,7 +130,7 @@ export function AdminLandingPage() {
   }
 
   function toggleMedia(id: string) {
-    setForm((prev) => ({
+    patchForm((prev) => ({
       ...prev,
       offerMediaIds: prev.offerMediaIds.includes(id)
         ? prev.offerMediaIds.filter((item) => item !== id)
@@ -108,7 +140,7 @@ export function AdminLandingPage() {
 
   function selectLandingCover(id: string) {
     if (!id) return
-    setForm((prev) => ({
+    patchForm((prev) => ({
       ...prev,
       offerMediaIds: prev.offerMediaIds.includes(id)
         ? [id, ...prev.offerMediaIds.filter((item) => item !== id)]
@@ -128,10 +160,13 @@ export function AdminLandingPage() {
       const item: LandingMedia = { id: editingId ?? uid('media'), ...upload }
       await saveMedia(item)
       const nextIds = form.offerMediaIds.includes(item.id) ? form.offerMediaIds : [...form.offerMediaIds, item.id]
-      const nextForm = normalizeLanding({ ...form, offerMediaIds: nextIds, offerProductId: 'prod_landing_offer' })
+      const nextForm = normalizeLanding({ ...form, offerMediaIds: nextIds })
       setForm(nextForm)
+      formRef.current = nextForm
       await saveLanding(nextForm)
-      setNotice(editingId ? 'File updated. It is listed below — tick it to show on the landing page.' : 'File saved. Tick it below to show on the landing page.')
+      dirtyRef.current = false
+      lastSavedLanding.current = JSON.stringify(nextForm)
+      setNotice(editingId ? 'File updated. Tick it below to show on /offer.' : 'File saved. Tick it below, then click Save.')
       resetUpload()
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Save failed')
@@ -145,9 +180,9 @@ export function AdminLandingPage() {
     setSaving(true)
     setNotice('')
     try {
-      await saveLanding(normalizeLanding({ ...form, offerProductId: 'prod_landing_offer' }))
-      await saveSite(normalizeSite(siteForm))
-      setNotice('Saved. Open the landing page to see every change.')
+      await persistLanding()
+      await persistSite()
+      setNotice('Saved. Open /offer — hero, package, story, why us, help and checkout now match.')
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Save failed')
     } finally {
@@ -162,10 +197,12 @@ export function AdminLandingPage() {
       const nextForm = normalizeLanding({
         ...form,
         offerMediaIds: form.offerMediaIds.filter((id) => id !== item.id),
-        offerProductId: 'prod_landing_offer',
       })
       setForm(nextForm)
+      formRef.current = nextForm
       await saveLanding(nextForm)
+      dirtyRef.current = false
+      lastSavedLanding.current = JSON.stringify(nextForm)
       if (editingId === item.id) resetUpload()
       setNotice('File deleted.')
     } catch (error) {
@@ -188,7 +225,7 @@ export function AdminLandingPage() {
       <div>
         <h1 className="font-display text-3xl text-gold">Landing page</h1>
         <p className="mt-1 text-sm text-zinc-400">
-          Every heading, photo, price, button and checkout text on /offer is edited here. Leave a field empty to hide it.
+          These 6 blocks are the landing page. Change a field, then click <span className="font-semibold text-gold">Save</span>. After a green Saved message, open /offer — it will show the same content.
         </p>
         <a
           href="/offer"
@@ -204,7 +241,9 @@ export function AdminLandingPage() {
           </p>
         ) : null}
         {syncError ? (
-          <p className="mt-2 text-sm font-semibold text-amber-300">Cloud: {syncError}. Changes are still saved on this device.</p>
+          <p className="mt-2 text-sm font-semibold text-amber-300">
+            Cloud: {syncError}. Other phones and browsers will keep the old landing until this save reaches the cloud. Log in with your admin email if asked.
+          </p>
         ) : null}
       </div>
 
@@ -231,7 +270,6 @@ export function AdminLandingPage() {
           }}
           accept="image/*,video/*"
           urlPlaceholder="Or paste image/video URL or YouTube embed"
-          required
         />
         <input
           placeholder="Title"
@@ -265,7 +303,7 @@ export function AdminLandingPage() {
         <section id="landing-product" className="space-y-4 rounded-2xl border border-white/10 bg-white/5 p-4">
           <p className="text-sm font-semibold text-zinc-200">Landing product — title, price, photos</p>
           <p className="text-xs text-zinc-500">
-            Tick the files to show on /offer. Orders use this title, price and the first ticked photo — not a Home product.
+            Title, price and photos here are only for /offer. Connect a Home product below so orders stay linked to it — Home name and price do not change.
           </p>
 
           <div>
@@ -275,14 +313,14 @@ export function AdminLandingPage() {
                 <button
                   type="button"
                   className="text-gold"
-                  onClick={() => setForm((prev) => ({ ...prev, offerMediaIds: sortedMedia.map((item) => item.id) }))}
+                  onClick={() => patchForm((prev) => ({ ...prev, offerMediaIds: sortedMedia.map((item) => item.id) }))}
                 >
                   Select all
                 </button>
                 <button
                   type="button"
                   className="text-zinc-400"
-                  onClick={() => setForm((prev) => ({ ...prev, offerMediaIds: [] }))}
+                  onClick={() => patchForm((prev) => ({ ...prev, offerMediaIds: [] }))}
                 >
                   Clear
                 </button>
@@ -365,10 +403,11 @@ export function AdminLandingPage() {
             Product title
             <input
               value={form.offerTitle}
-              onChange={(e) => setForm({ ...form, offerTitle: e.target.value })}
+              onChange={(e) => patchForm({ offerTitle: e.target.value })}
               placeholder="মিয়াজাকি আম (সূর্য ডিম)"
               className="mt-1 w-full rounded-xl bg-white/5 px-3 py-3 text-zinc-100"
             />
+            <span className="mt-1 block text-xs text-zinc-500">Shows on /offer. Does not change the Home product name.</span>
           </label>
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="block text-sm text-zinc-400">
@@ -377,9 +416,8 @@ export function AdminLandingPage() {
                 type="number"
                 min={0}
                 value={form.offerPrice || ''}
-                onChange={(e) => setForm({ ...form, offerPrice: Number(e.target.value) })}
+                onChange={(e) => patchForm({ offerPrice: Number(e.target.value) })}
                 className="mt-1 w-full rounded-xl bg-white/5 px-3 py-3 text-zinc-100"
-                required
               />
             </label>
             <label className="block text-sm text-zinc-400">
@@ -389,16 +427,19 @@ export function AdminLandingPage() {
                 min={0}
                 value={form.offerComparePrice ?? ''}
                 onChange={(e) =>
-                  setForm({ ...form, offerComparePrice: e.target.value === '' ? null : Number(e.target.value) })
+                  patchForm({ offerComparePrice: e.target.value === '' ? null : Number(e.target.value) })
                 }
                 className="mt-1 w-full rounded-xl bg-white/5 px-3 py-3 text-zinc-100"
               />
             </label>
           </div>
+          <p className="text-xs text-zinc-500">Landing price is only for /offer. Home product price stays as it is.</p>
           <label className="block text-sm text-zinc-400">
-            Landing product
+            Connect Home product
             <div className="mt-1 flex items-center gap-3 rounded-xl bg-[#0b1210] px-3 py-2">
-              {landingCover?.url && landingCover.type === 'image' ? (
+              {linkedProduct?.image ? (
+                <img src={linkedProduct.image} alt="" className="size-12 shrink-0 rounded-lg object-cover" />
+              ) : landingCover?.url && landingCover.type === 'image' ? (
                 <img src={landingCover.url} alt="" className="size-12 shrink-0 rounded-lg object-cover" />
               ) : (
                 <span className="grid size-12 shrink-0 place-items-center rounded-lg bg-white/10 text-[10px] text-zinc-500">
@@ -407,33 +448,43 @@ export function AdminLandingPage() {
               )}
               <div className="relative min-w-0 flex-1">
                 <select
-                  value={landingCoverId}
-                  onChange={(e) => selectLandingCover(e.target.value)}
+                  value={form.offerProductId || LANDING_OFFER_ID}
+                  onChange={(e) => patchForm({ offerProductId: e.target.value || LANDING_OFFER_ID })}
                   className="admin-select w-full appearance-none rounded-xl bg-transparent py-2 pr-8 text-zinc-100"
                 >
-                  {landingChoices.length ? (
-                    landingChoices.map((item) => (
-                      <option key={item.id} value={item.id}>
-                        {(form.offerTitle || item.title || 'Untitled').trim()} — {landingPriceLabel}
-                      </option>
-                    ))
-                  ) : (
-                    <option value="">
-                      {(form.offerTitle || 'Set title and photos above').trim()} — {landingPriceLabel}
+                  <option value={LANDING_OFFER_ID}>Landing only — not a Home product</option>
+                  {homeProducts.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.name} — {formatTaka(item.price)}
                     </option>
-                  )}
+                  ))}
                 </select>
                 <ChevronDown className="pointer-events-none absolute right-1 top-1/2 size-4 -translate-y-1/2 text-zinc-400" />
               </div>
             </div>
+            <span className="mt-1 block text-xs text-zinc-500">
+              {linkedProduct
+                ? `Orders on /offer are linked to ${linkedProduct.name}. /offer still uses the title, price and photos above.`
+                : 'Pick a Home product to link orders. Leave as Landing only if this offer should stay separate.'}
+            </span>
           </label>
-          <button
-            type="submit"
-            disabled={saving}
-            className="rounded-xl bg-gold px-6 py-3 font-bold text-leaf-deep disabled:opacity-60"
-          >
-            {saving ? 'Saving...' : 'Save'}
-          </button>
+          {landingChoices.length > 1 ? (
+            <label className="block text-sm text-zinc-400">
+              Cover photo on /offer
+              <select
+                value={landingCoverId}
+                onChange={(e) => selectLandingCover(e.target.value)}
+                className="admin-select mt-1 w-full rounded-xl bg-[#0b1210] px-3 py-3 text-zinc-100"
+              >
+                {landingChoices.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.title || 'Untitled'}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+          <SaveBtn saving={saving} />
         </section>
 
         <section className="space-y-4 rounded-2xl border border-white/10 bg-white/5 p-4">
@@ -443,7 +494,7 @@ export function AdminLandingPage() {
             Hero title (small gold line)
             <input
               value={form.heroTitle}
-              onChange={(e) => setForm({ ...form, heroTitle: e.target.value })}
+              onChange={(e) => patchForm({ heroTitle: e.target.value })}
               className="mt-1 w-full rounded-xl bg-white/5 px-3 py-3 text-zinc-100"
             />
           </label>
@@ -451,7 +502,7 @@ export function AdminLandingPage() {
             Hero subtitle
             <input
               value={form.heroSubtitle}
-              onChange={(e) => setForm({ ...form, heroSubtitle: e.target.value })}
+              onChange={(e) => patchForm({ heroSubtitle: e.target.value })}
               className="mt-1 w-full rounded-xl bg-white/5 px-3 py-3 text-zinc-100"
             />
           </label>
@@ -459,11 +510,12 @@ export function AdminLandingPage() {
             Order button text
             <input
               value={form.ctaLabel}
-              onChange={(e) => setForm({ ...form, ctaLabel: e.target.value })}
+              onChange={(e) => patchForm({ ctaLabel: e.target.value })}
               className="mt-1 w-full rounded-xl bg-white/5 px-3 py-3 text-zinc-100"
             />
             <span className="mt-1 block text-xs text-zinc-500">Used on hero buttons and on each photo. Empty hides those buttons.</span>
           </label>
+          <SaveBtn saving={saving} />
         </section>
 
         <section className="space-y-4 rounded-2xl border border-white/10 bg-white/5 p-4">
@@ -472,7 +524,7 @@ export function AdminLandingPage() {
             Package title (white box)
             <input
               value={form.packageTitle}
-              onChange={(e) => setForm({ ...form, packageTitle: e.target.value })}
+              onChange={(e) => patchForm({ packageTitle: e.target.value })}
               className="mt-1 w-full rounded-xl bg-white/5 px-3 py-3 text-zinc-100"
             />
           </label>
@@ -480,20 +532,14 @@ export function AdminLandingPage() {
             Package items (one per line)
             <textarea
               value={form.packageItems.join('\n')}
-              onChange={(e) => setForm({ ...form, packageItems: e.target.value.split('\n') })}
+              onChange={(e) => patchForm({ packageItems: e.target.value.split('\n') })}
               className="mt-1 min-h-40 w-full rounded-xl bg-white/5 px-3 py-3 text-zinc-100"
             />
             <span className="mt-1 block text-xs text-zinc-500">
               Number a line yourself with 1. 2. 3. Lines without a number show as headings. Use Title: details to split heading and description. Save after edit — deleted lines leave the landing page, changed lines update it.
             </span>
           </label>
-          <button
-            type="submit"
-            disabled={saving}
-            className="rounded-xl bg-gold px-6 py-3 font-bold text-leaf-deep disabled:opacity-60"
-          >
-            {saving ? 'Saving...' : 'Save'}
-          </button>
+          <SaveBtn saving={saving} />
         </section>
 
         <section className="space-y-4 rounded-2xl border border-white/10 bg-white/5 p-4">
@@ -502,7 +548,7 @@ export function AdminLandingPage() {
             Story title
             <input
               value={form.storyTitle}
-              onChange={(e) => setForm({ ...form, storyTitle: e.target.value })}
+              onChange={(e) => patchForm({ storyTitle: e.target.value })}
               className="mt-1 w-full rounded-xl bg-white/5 px-3 py-3 text-zinc-100"
             />
           </label>
@@ -510,10 +556,11 @@ export function AdminLandingPage() {
             Story body
             <textarea
               value={form.storyBody}
-              onChange={(e) => setForm({ ...form, storyBody: e.target.value })}
+              onChange={(e) => patchForm({ storyBody: e.target.value })}
               className="mt-1 min-h-28 w-full rounded-xl bg-white/5 px-3 py-3 text-zinc-100"
             />
           </label>
+          <SaveBtn saving={saving} />
         </section>
 
         <section className="space-y-4 rounded-2xl border border-white/10 bg-white/5 p-4">
@@ -522,7 +569,7 @@ export function AdminLandingPage() {
             Why title
             <input
               value={form.whyTitle}
-              onChange={(e) => setForm({ ...form, whyTitle: e.target.value })}
+              onChange={(e) => patchForm({ whyTitle: e.target.value })}
               className="mt-1 w-full rounded-xl bg-white/5 px-3 py-3 text-zinc-100"
             />
           </label>
@@ -530,10 +577,11 @@ export function AdminLandingPage() {
             Why items (one per line)
             <textarea
               value={form.whyItems.join('\n')}
-              onChange={(e) => setForm({ ...form, whyItems: e.target.value.split('\n') })}
+              onChange={(e) => patchForm({ whyItems: e.target.value.split('\n') })}
               className="mt-1 min-h-28 w-full rounded-xl bg-white/5 px-3 py-3 text-zinc-100"
             />
           </label>
+          <SaveBtn saving={saving} />
         </section>
 
         <section className="space-y-4 rounded-2xl border border-white/10 bg-white/5 p-4">
@@ -542,7 +590,7 @@ export function AdminLandingPage() {
             Help title
             <input
               value={form.helpTitle}
-              onChange={(e) => setForm({ ...form, helpTitle: e.target.value })}
+              onChange={(e) => patchForm({ helpTitle: e.target.value })}
               className="mt-1 w-full rounded-xl bg-white/5 px-3 py-3 text-zinc-100"
             />
           </label>
@@ -550,7 +598,7 @@ export function AdminLandingPage() {
             Help subtitle
             <input
               value={form.helpSubtitle}
-              onChange={(e) => setForm({ ...form, helpSubtitle: e.target.value })}
+              onChange={(e) => patchForm({ helpSubtitle: e.target.value })}
               className="mt-1 w-full rounded-xl bg-white/5 px-3 py-3 text-zinc-100"
             />
           </label>
@@ -558,7 +606,7 @@ export function AdminLandingPage() {
             Payment / WhatsApp title
             <input
               value={form.paymentTitle}
-              onChange={(e) => setForm({ ...form, paymentTitle: e.target.value })}
+              onChange={(e) => patchForm({ paymentTitle: e.target.value })}
               className="mt-1 w-full rounded-xl bg-white/5 px-3 py-3 text-zinc-100"
             />
           </label>
@@ -566,7 +614,7 @@ export function AdminLandingPage() {
             Help / order phones
             <input
               value={form.paymentNumber}
-              onChange={(e) => setForm({ ...form, paymentNumber: e.target.value })}
+              onChange={(e) => patchForm({ paymentNumber: e.target.value })}
               className="mt-1 w-full rounded-xl bg-white/5 px-3 py-3 text-zinc-100"
             />
           </label>
@@ -574,10 +622,11 @@ export function AdminLandingPage() {
             Payment note
             <textarea
               value={form.paymentNote}
-              onChange={(e) => setForm({ ...form, paymentNote: e.target.value })}
+              onChange={(e) => patchForm({ paymentNote: e.target.value })}
               className="mt-1 min-h-20 w-full rounded-xl bg-white/5 px-3 py-3 text-zinc-100"
             />
           </label>
+          <SaveBtn saving={saving} />
         </section>
 
         <section className="space-y-4 rounded-2xl border border-white/10 bg-white/5 p-4">
@@ -586,7 +635,7 @@ export function AdminLandingPage() {
             Checkout title
             <input
               value={form.checkoutTitle}
-              onChange={(e) => setForm({ ...form, checkoutTitle: e.target.value })}
+              onChange={(e) => patchForm({ checkoutTitle: e.target.value })}
               className="mt-1 w-full rounded-xl bg-white/5 px-3 py-3 text-zinc-100"
             />
           </label>
@@ -594,7 +643,7 @@ export function AdminLandingPage() {
             Billing box title
             <input
               value={form.checkoutBillingTitle}
-              onChange={(e) => setForm({ ...form, checkoutBillingTitle: e.target.value })}
+              onChange={(e) => patchForm({ checkoutBillingTitle: e.target.value })}
               className="mt-1 w-full rounded-xl bg-white/5 px-3 py-3 text-zinc-100"
             />
           </label>
@@ -602,7 +651,7 @@ export function AdminLandingPage() {
             Order box title
             <input
               value={form.checkoutOrderTitle}
-              onChange={(e) => setForm({ ...form, checkoutOrderTitle: e.target.value })}
+              onChange={(e) => patchForm({ checkoutOrderTitle: e.target.value })}
               className="mt-1 w-full rounded-xl bg-white/5 px-3 py-3 text-zinc-100"
             />
           </label>
@@ -610,7 +659,7 @@ export function AdminLandingPage() {
             Place order button
             <input
               value={form.checkoutSubmitLabel}
-              onChange={(e) => setForm({ ...form, checkoutSubmitLabel: e.target.value })}
+              onChange={(e) => patchForm({ checkoutSubmitLabel: e.target.value })}
               className="mt-1 w-full rounded-xl bg-white/5 px-3 py-3 text-zinc-100"
             />
           </label>
@@ -618,10 +667,11 @@ export function AdminLandingPage() {
             Cash on delivery note
             <textarea
               value={form.checkoutCodNote}
-              onChange={(e) => setForm({ ...form, checkoutCodNote: e.target.value })}
+              onChange={(e) => patchForm({ checkoutCodNote: e.target.value })}
               className="mt-1 min-h-20 w-full rounded-xl bg-white/5 px-3 py-3 text-zinc-100"
             />
           </label>
+          <SaveBtn saving={saving} />
         </section>
 
         <section className="space-y-3 rounded-2xl border border-gold/30 bg-gold/10 p-4">
@@ -645,18 +695,22 @@ export function AdminLandingPage() {
             Meta Pixel ID
             <input
               value={form.metaPixelId}
-              onChange={(e) => setForm({ ...form, metaPixelId: e.target.value.replace(/\s/g, '') })}
+              onChange={(e) => patchForm({ metaPixelId: e.target.value.replace(/\s/g, '') })}
               placeholder="Paste from Meta Events Manager"
               className="mt-1 w-full rounded-xl bg-black/30 px-3 py-3 text-zinc-100"
             />
           </label>
         </section>
 
-        <ShopSettingsFields form={siteForm} onChange={setSiteForm} />
+        <ShopSettingsFields
+          form={siteForm}
+          onChange={(next) => {
+            siteDirtyRef.current = true
+            setSiteForm(next)
+          }}
+        />
 
-        <button type="submit" disabled={saving} className="rounded-xl bg-gold px-6 py-3 font-bold text-leaf-deep disabled:opacity-60">
-          {saving ? 'Saving...' : 'Save'}
-        </button>
+        <SaveBtn saving={saving} />
       </form>
     </div>
   )

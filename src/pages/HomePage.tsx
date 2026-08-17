@@ -3,9 +3,11 @@ import { FeatureCarousel } from '@/components/home/FeatureCarousel'
 import { HeroCarousel } from '@/components/home/HeroCarousel'
 import { ProductCard } from '@/components/product/ProductCard'
 import { useStore } from '@/context/StoreContext'
+import { catalogProducts } from '@/lib/seed'
 
 export function HomePage() {
   const { products, site } = useStore()
+  const catalog = catalogProducts(products)
 
   return (
     <div>
@@ -29,7 +31,7 @@ export function HomePage() {
 
       <section id="products" className="mx-auto max-w-6xl px-3 py-4 lg:px-4 lg:py-8">
         <div className="grid grid-cols-2 items-stretch gap-2.5 sm:gap-4 lg:grid-cols-3 lg:gap-5">
-          {products.map((product) => (
+          {catalog.map((product) => (
             <ProductCard key={product.id} product={product} />
           ))}
         </div>

@@ -37,6 +37,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (data.session) {
         localStorage.setItem(KEY, '1')
         setIsAdmin(true)
+        return
+      }
+      if (import.meta.env.PROD) {
+        localStorage.removeItem(KEY)
+        setIsAdmin(false)
       }
     })
     const { data } = supabase.auth.onAuthStateChange((event, session) => {

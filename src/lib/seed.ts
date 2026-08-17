@@ -12,6 +12,17 @@ import type {
 const img = (file: string) => `/images/${file}`
 const created = '2026-08-01T10:00:00.000Z'
 
+export const LANDING_OFFER_ID = 'prod_landing_offer'
+
+export function catalogProducts(products: Product[]) {
+  return products.filter((item) => item.id !== LANDING_OFFER_ID)
+}
+
+export function isCatalogProductId(id: string | undefined) {
+  const value = id?.trim() ?? ''
+  return Boolean(value && value !== LANDING_OFFER_ID && value !== 'prod_papaya')
+}
+
 export const SITE = {
   name: 'JS Agro Shop',
   nameEn: 'JS Agro Shop',
@@ -392,19 +403,19 @@ export const seedLanding: LandingContent = {
   paymentTitle: 'WhatsApp / Imo',
   paymentNumber: '01813-514791 · 01725-250188',
   paymentNote: 'অর্ডার কনফার্ম করতে WhatsApp বা Imo-তে মেসেজ দিন। সারা দেশে কুরিয়ার/বাস ডেলিভারি।',
-  offerProductId: 'prod_landing_offer',
+  offerProductId: LANDING_OFFER_ID,
   offerTitle: 'মিয়াজাকি আম (সূর্য ডিম)',
   offerPrice: 850,
   offerComparePrice: null,
   offerMediaIds: [],
   metaPixelId: '',
   ctaLabel: 'অর্ডার করুন',
-  checkoutTitle: 'অর্ডার করুন',
+  checkoutTitle: 'আপনার নাম, ঠিকানা ও মোবাইল নম্বর দিয়ে অর্ডারটি সম্পন্ন করুন',
   helpTitle: 'ওয়েবসাইটে অর্ডার করতে সমস্যা হলে বা অর্ডার করতে না পারলে',
   helpSubtitle: 'প্রয়োজনে কল করুন-',
-  checkoutBillingTitle: 'Billing details',
-  checkoutOrderTitle: 'Your order',
-  checkoutSubmitLabel: 'Place Order',
+  checkoutBillingTitle: 'বিলিং তথ্য',
+  checkoutOrderTitle: 'আপনার অর্ডার',
+  checkoutSubmitLabel: 'অর্ডার করুন',
   checkoutCodNote: 'Cash on delivery — পণ্য হাতে পেয়ে টাকা দিবেন।',
 }
 
@@ -448,7 +459,7 @@ export function normalizeLanding(raw?: Partial<LandingContent> | null): LandingC
     paymentNote: pickText(src.paymentNote, base.paymentNote, true),
     offerProductId: src.offerProductId?.trim() && src.offerProductId !== 'prod_papaya'
       ? src.offerProductId.trim()
-      : 'prod_landing_offer',
+      : LANDING_OFFER_ID,
     offerTitle: pickText(src.offerTitle, base.offerTitle, true),
     offerPrice: Number.isFinite(Number(src.offerPrice)) && Number(src.offerPrice) >= 0 ? Number(src.offerPrice) : 0,
     offerComparePrice:
@@ -463,8 +474,8 @@ export function normalizeLanding(raw?: Partial<LandingContent> | null): LandingC
     checkoutTitle: pickText(src.checkoutTitle, base.checkoutTitle, true),
     helpTitle: pickText(src.helpTitle, base.helpTitle, true),
     helpSubtitle: pickText(src.helpSubtitle, base.helpSubtitle, true),
-    checkoutBillingTitle: pickText(src.checkoutBillingTitle, base.checkoutBillingTitle),
-    checkoutOrderTitle: pickText(src.checkoutOrderTitle, base.checkoutOrderTitle),
+    checkoutBillingTitle: pickText(src.checkoutBillingTitle, base.checkoutBillingTitle, true),
+    checkoutOrderTitle: pickText(src.checkoutOrderTitle, base.checkoutOrderTitle, true),
     checkoutSubmitLabel: pickText(src.checkoutSubmitLabel, base.checkoutSubmitLabel),
     checkoutCodNote: pickText(src.checkoutCodNote, base.checkoutCodNote, true),
   }

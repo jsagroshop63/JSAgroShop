@@ -3,6 +3,7 @@ import { useConfirm } from '@/components/admin/ConfirmDialog'
 import { AdminGalleryUpload, AdminUploadField } from '@/components/admin/AdminUploadField'
 import { SafeImage } from '@/components/ui/SafeImage'
 import { useStore } from '@/context/StoreContext'
+import { catalogProducts } from '@/lib/seed'
 import type { Product } from '@/lib/types'
 import { formatTaka, uid } from '@/lib/utils'
 
@@ -21,6 +22,7 @@ const empty: Omit<Product, 'id' | 'createdAt'> = {
 
 export function AdminProductsPage() {
   const { products, saveProduct, deleteProduct } = useStore()
+  const catalog = catalogProducts(products)
   const confirm = useConfirm()
   const [editing, setEditing] = useState<Product | null>(null)
   const [form, setForm] = useState(empty)
@@ -105,7 +107,7 @@ export function AdminProductsPage() {
               </tr>
             </thead>
             <tbody>
-              {products.map((product) => (
+              {catalog.map((product) => (
                 <tr key={product.id} className="border-t border-white/10">
                   <td className="px-3 py-2">
                     <div className="flex items-center gap-3">

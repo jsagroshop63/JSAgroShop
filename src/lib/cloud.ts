@@ -15,6 +15,16 @@ function fail(error: { message: string } | null) {
   if (error) throw new Error(error.message)
 }
 
+async function requireAdminSession() {
+  if (!supabase) return
+  const { data } = await supabase.auth.getSession()
+  if (!data.session) {
+    throw new Error(
+      'Log in with your admin email and password so this landing page is published to every visitor.',
+    )
+  }
+}
+
 function asStringList(value: unknown): string[] {
   if (Array.isArray(value)) return value.map((item) => String(item))
   if (typeof value === 'string' && value.trim()) {
@@ -151,7 +161,9 @@ function asSite(row: Record<string, unknown>): SiteContent {
   })
 }
 
-export async function fetchCloudSnapshot(): Promise<StoreSnapshot | null> {
+export async function fetchCloudSnapshot(): Promise<
+  (StoreSnapshot & { hasLanding: boolean; hasMedia: boolean }) | null
+> {
   if (!isSupabaseEnabled || !supabase) return null
   const [products, orders, slides, media, landing, site] = await Promise.all([
     supabase.from('products').select('*').order('created_at', { ascending: false }),
@@ -163,18 +175,21 @@ export async function fetchCloudSnapshot(): Promise<StoreSnapshot | null> {
   ])
   if (products.error || orders.error) return null
   const orderList = (orders.data ?? []).map((row) => asOrder(row as Record<string, unknown>))
+  const hasLanding = Boolean(landing.data) && !landing.error
   return {
     products: (products.data ?? []).map((row) => asProduct(row as Record<string, unknown>)),
     orders: orderList,
     slides: (slides.data ?? []).map((row) => asSlide(row as Record<string, unknown>)),
-    media: (media.data ?? []).map((row) => asMedia(row as Record<string, unknown>)),
-    landing: landing.data ? asLanding(landing.data as Record<string, unknown>) : seedLanding,
+    media: media.error ? [] : (media.data ?? []).map((row) => asMedia(row as Record<string, unknown>)),
+    landing: hasLanding ? asLanding(landing.data as Record<string, unknown>) : seedLanding,
     site: site.data && !site.error ? asSite(site.data as Record<string, unknown>) : seedSite,
     customers: customersFromOrders(orderList),
     messages: [],
-    cmsUpdatedAt: landing.data
+    cmsUpdatedAt: hasLanding
       ? String((landing.data as Record<string, unknown>).updated_at ?? '')
       : '',
+    hasLanding,
+    hasMedia: !media.error,
   }
 }
 
@@ -192,13 +207,18 @@ export async function fetchCloudCms() {
     supabase.from('landing_content').select('*').eq('id', 1).maybeSingle(),
     supabase.from('site_settings').select('*').eq('id', 1).maybeSingle(),
   ])
+  if (media.error) return null
+  if (landing.error && landing.error.code !== 'PGRST116') return null
+  const hasLanding = Boolean(landing.data)
   return {
-    landing: landing.data ? asLanding(landing.data as Record<string, unknown>) : seedLanding,
+    landing: hasLanding ? asLanding(landing.data as Record<string, unknown>) : undefined,
     media: (media.data ?? []).map((row) => asMedia(row as Record<string, unknown>)),
-    site: site.data && !site.error ? asSite(site.data as Record<string, unknown>) : seedSite,
-    cmsUpdatedAt: landing.data
+    site: site.data && !site.error ? asSite(site.data as Record<string, unknown>) : undefined,
+    cmsUpdatedAt: hasLanding
       ? String((landing.data as Record<string, unknown>).updated_at ?? '')
       : '',
+    hasLanding,
+    hasMedia: true,
   }
 }
 
@@ -407,6 +427,7 @@ export async function cloudDeleteSlide(id: string) {
 
 export async function cloudUpsertMedia(item: LandingMedia) {
   if (!supabase) return
+  await requireAdminSession()
   const { error } = await supabase.from('landing_media').upsert({
     id: item.id,
     type: item.type,
@@ -421,12 +442,14 @@ export async function cloudUpsertMedia(item: LandingMedia) {
 
 export async function cloudDeleteMedia(id: string) {
   if (!supabase) return
+  await requireAdminSession()
   const { error } = await supabase.from('landing_media').delete().eq('id', id)
   fail(error)
 }
 
 export async function cloudSaveLanding(landing: LandingContent, updatedAt = new Date().toISOString()) {
   if (!supabase) return
+  await requireAdminSession()
   const payload = {
     id: 1,
     hero_title: landing.heroTitle,
@@ -488,6 +511,7 @@ export async function cloudSaveLanding(landing: LandingContent, updatedAt = new 
 
 export async function cloudSaveSite(site: SiteContent) {
   if (!supabase) return
+  await requireAdminSession()
   const payload = {
     id: 1,
     name: site.name,

@@ -17,7 +17,8 @@ export function HeroCarousel() {
   }, [active.length])
 
   if (!active.length) return null
-  const slide = active[index] ?? active[0]
+  const safeIndex = index < active.length ? index : 0
+  const slide = active[safeIndex] ?? active[0]
 
   return (
     <section className="relative h-[210px] overflow-hidden bg-leaf-deep sm:h-[240px] md:h-[36vh] md:min-h-[260px] lg:h-[72vh] lg:min-h-[520px]">
@@ -27,7 +28,7 @@ export function HeroCarousel() {
           src={item.image}
           alt={item.title}
           className="absolute inset-0 size-full object-cover transition-opacity duration-700"
-          style={{ opacity: i === index ? 1 : 0 }}
+          style={{ opacity: i === safeIndex ? 1 : 0 }}
           onError={(event) => {
             event.currentTarget.src = '/images/hero-garden.jpg'
           }}
@@ -78,7 +79,7 @@ export function HeroCarousel() {
               <button
                 key={item.id}
                 type="button"
-                className={`h-1.5 rounded-full transition-all sm:h-2 ${i === index ? 'w-6 bg-gold sm:w-8' : 'w-1.5 bg-white/60 sm:w-2'}`}
+                className={`h-1.5 rounded-full transition-all sm:h-2 ${i === safeIndex ? 'w-6 bg-gold sm:w-8' : 'w-1.5 bg-white/60 sm:w-2'}`}
                 onClick={() => setIndex(i)}
                 aria-label={`স্লাইড ${i + 1}`}
               />

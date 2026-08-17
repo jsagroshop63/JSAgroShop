@@ -14,6 +14,10 @@ const links = [
   { to: '/cart', label: 'CART' },
 ]
 
+function telHref(phone: string) {
+  return `tel:${phone.replace(/[\s-]/g, '')}`
+}
+
 export function Layout({ children }: { children: ReactNode }) {
   const { count } = useCart()
   const { site: rawSite } = useStore()
@@ -118,10 +122,10 @@ export function Layout({ children }: { children: ReactNode }) {
             <p className="mb-3 font-bold text-gold">যোগাযোগ</p>
             <p className="text-sm">{site.address}</p>
             <p className="text-sm">
-              <a href={`tel:${site.phone2}`}>{site.phone2}</a> (WhatsApp)
+              <a href={telHref(site.phone2)}>{site.phone2}</a> (WhatsApp)
             </p>
             <p className="text-sm">
-              <a href={`tel:${site.phone}`}>{site.phone}</a> (WhatsApp)
+              <a href={telHref(site.phone)}>{site.phone}</a> (WhatsApp)
             </p>
           </div>
         </div>

@@ -28,9 +28,9 @@ export function CheckoutForm({
   onOrdered,
   alignCenter,
   productTitle,
-  billingTitle = 'Billing details',
-  orderTitle = 'Your order',
-  submitLabel = 'Place Order',
+  billingTitle = 'বিলিং তথ্য',
+  orderTitle = 'আপনার অর্ডার',
+  submitLabel = 'অর্ডার করুন',
   codNote = 'Cash on delivery — পণ্য হাতে পেয়ে টাকা দিবেন।',
 }: Props) {
   const { placeOrder, orders } = useStore()
@@ -47,12 +47,14 @@ export function CheckoutForm({
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
 
+  const firstProductId = products[0]?.product.id ?? ''
+  const firstProductQty = products[0]?.quantity ?? 1
+
   useEffect(() => {
-    if (products.length === 1 && !lockItems) {
-      setQty(products[0]?.quantity ?? 1)
-      if (!selectable.length) setSelectedId(products[0]?.product.id ?? '')
-    }
-  }, [lockItems, products, selectable.length])
+    if (lockItems || products.length !== 1) return
+    setQty(firstProductQty)
+    if (!selectable.length) setSelectedId(firstProductId)
+  }, [firstProductId, firstProductQty, lockItems, products.length, selectable.length])
 
   const selectedProduct =
     selectable.find((item) => item.id === selectedId) ??
