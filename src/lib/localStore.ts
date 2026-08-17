@@ -1,6 +1,5 @@
 import type { Customer, LandingContent, LandingMedia, Order, SiteContent, StoreSnapshot } from './types'
 import { createSeedSnapshot, normalizeLanding, normalizeSite } from './seed'
-import { isSupabaseEnabled } from './supabase'
 
 const KEY = 'js-agro-shop-store-v5'
 const CMS_KEY = 'js-agro-shop-cms-v1'
@@ -64,13 +63,6 @@ export function loadSnapshot(): StoreSnapshot {
       ...snapshot.landing,
       heroSubtitle: snapshot.landing.heroSubtitle.replaceAll('৯.৮ হাজার', '২০ হাজার'),
     })
-    if (isSupabaseEnabled) {
-      snapshot.landing = seed.landing
-      snapshot.site = seed.site
-      snapshot.media = seed.media
-      snapshot.cmsUpdatedAt = undefined
-      return snapshot
-    }
     const cms = loadCmsBundle()
     if (cms && (!snapshot.cmsUpdatedAt || cms.cmsUpdatedAt >= snapshot.cmsUpdatedAt)) {
       snapshot.landing = normalizeLanding(cms.landing)
@@ -94,26 +86,11 @@ export function saveSnapshot(snapshot: StoreSnapshot) {
     cmsUpdatedAt: snapshot.cmsUpdatedAt,
   }
   try {
-    if (isSupabaseEnabled) {
-      localStorage.setItem(
-        KEY,
-        JSON.stringify({
-          ...next,
-          landing: undefined,
-          site: undefined,
-          media: [],
-          cmsUpdatedAt: undefined,
-        }),
-      )
-    } else {
-      localStorage.setItem(KEY, JSON.stringify(next))
-    }
+    localStorage.setItem(KEY, JSON.stringify(next))
   } catch {
     // Keep in-memory changes working even if storage is full.
   }
-  if (!isSupabaseEnabled) {
-    saveCmsBundle(next.landing, next.site, next.media, next.cmsUpdatedAt)
-  }
+  saveCmsBundle(next.landing, next.site, next.media, next.cmsUpdatedAt)
   return next
 }
 

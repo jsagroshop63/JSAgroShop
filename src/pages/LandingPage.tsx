@@ -1,13 +1,11 @@
 import { CheckoutForm } from '@/components/order/CheckoutForm'
 import { SafeImage } from '@/components/ui/SafeImage'
 import { useStore } from '@/context/StoreContext'
-import { fetchCloudCms } from '@/lib/cloud'
 import { trackAddToCart, trackInitiateCheckout, trackOnce, trackViewContent } from '@/lib/metaPixel'
 import { normalizeLanding, LANDING_OFFER_ID } from '@/lib/seed'
-import { isSupabaseEnabled } from '@/lib/supabase'
-import type { LandingContent, LandingMedia, Product } from '@/lib/types'
+import type { Product } from '@/lib/types'
 import { formatTaka, freshMediaUrl } from '@/lib/utils'
-import { useEffect, useMemo, useState, type MouseEvent } from 'react'
+import { useEffect, useMemo, type MouseEvent } from 'react'
 import { useLocation } from 'react-router-dom'
 
 function youtubeId(url: string) {
@@ -68,43 +66,25 @@ function trackLandingCheckout(
 }
 
 export function LandingPage() {
-  const { landing: storeLanding, media: storeMedia } = useStore()
+  const { landing, media, cmsUpdatedAt, reloadCms } = useStore()
   const { pathname } = useLocation()
-  const [remoteLanding, setRemoteLanding] = useState<LandingContent | null>(null)
-  const [remoteMedia, setRemoteMedia] = useState<LandingMedia[] | null>(null)
-  const [mediaStamp, setMediaStamp] = useState('')
-  const [cloudReady, setCloudReady] = useState(!isSupabaseEnabled)
+  const content = normalizeLanding(landing)
+  const mediaStamp = cmsUpdatedAt || ''
 
   useEffect(() => {
-    if (!isSupabaseEnabled) return
-    let cancelled = false
-    const getLandingData = async () => {
-      const data = await fetchCloudCms()
-      if (cancelled || !data) {
-        if (!cancelled) setCloudReady(true)
-        return
-      }
-      if (data.hasLanding && data.landing) setRemoteLanding(normalizeLanding(data.landing))
-      if (data.hasMedia && Array.isArray(data.media)) setRemoteMedia(data.media)
-      setMediaStamp(data.cmsUpdatedAt || String(Date.now()))
-      setCloudReady(true)
-    }
-    void getLandingData()
+    void reloadCms(true)
+    const poll = window.setInterval(() => void reloadCms(true), 4000)
     const onVisible = () => {
-      if (document.visibilityState === 'visible') void getLandingData()
+      if (document.visibilityState === 'visible') void reloadCms(true)
     }
-    window.addEventListener('focus', getLandingData)
+    window.addEventListener('focus', onVisible)
     document.addEventListener('visibilitychange', onVisible)
     return () => {
-      cancelled = true
-      window.removeEventListener('focus', getLandingData)
+      window.clearInterval(poll)
+      window.removeEventListener('focus', onVisible)
       document.removeEventListener('visibilitychange', onVisible)
     }
-  }, [])
-
-  const landing = remoteLanding ?? storeLanding
-  const media = remoteMedia ?? storeMedia
-  const content = normalizeLanding(landing)
+  }, [reloadCms])
   const gallery = useMemo(() => {
     const list = media ?? []
     const byId = new Map(list.map((item) => [item.id, item]))
@@ -175,10 +155,6 @@ export function LandingPage() {
       phones.length ||
       content.paymentNote.trim(),
   )
-
-  if (!cloudReady) {
-    return <div className="min-h-screen bg-white" />
-  }
 
   return (
     <div className="bg-white text-center">

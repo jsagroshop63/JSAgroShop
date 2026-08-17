@@ -40,14 +40,14 @@ const emptyMedia = {
   active: true,
 }
 
-function SaveBtn({ saving }: { saving: boolean }) {
+function SaveBtn({ saving, ok }: { saving: boolean; ok: boolean }) {
   return (
     <button
       type="submit"
       disabled={saving}
       className="rounded-xl bg-gold px-6 py-3 font-bold text-leaf-deep disabled:opacity-60"
     >
-      {saving ? 'Saving...' : 'Save'}
+      {saving ? 'Saving...' : ok ? 'OK' : 'Save'}
     </button>
   )
 }
@@ -62,6 +62,15 @@ export function AdminLandingPage() {
   const [savingFile, setSavingFile] = useState(false)
   const [saving, setSaving] = useState(false)
   const [notice, setNotice] = useState('')
+  const [savedOk, setSavedOk] = useState(false)
+  const okTimer = useRef(0)
+
+  function markOk() {
+    window.clearTimeout(okTimer.current)
+    setSavedOk(true)
+    setNotice('OK')
+    okTimer.current = window.setTimeout(() => setSavedOk(false), 4000)
+  }
   const [copied, setCopied] = useState(false)
   const [landingUrl, setLandingUrl] = useState('')
   const sortedMedia = media.slice().sort((a, b) => a.sortOrder - b.sortOrder)
@@ -154,6 +163,7 @@ export function AdminLandingPage() {
     }
     setSavingFile(true)
     setNotice('')
+    setSavedOk(false)
     try {
       const item: LandingMedia = { id: editingId ?? uid('media'), ...upload }
       await saveMedia(item)
@@ -164,7 +174,7 @@ export function AdminLandingPage() {
       await saveLanding(nextForm)
       dirtyRef.current = false
       lastSavedLanding.current = JSON.stringify(nextForm)
-      setNotice(editingId ? 'File updated. Tick it below to show on /offer.' : 'File saved. Tick it below, then click Save.')
+      markOk()
       resetUpload()
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Save failed')
@@ -177,10 +187,11 @@ export function AdminLandingPage() {
     event.preventDefault()
     setSaving(true)
     setNotice('')
+    setSavedOk(false)
     try {
       await persistLanding()
       await persistSite()
-      setNotice('Saved. Open /offer — hero, package, story, why us, help and checkout now match.')
+      markOk()
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Save failed')
     } finally {
@@ -203,7 +214,7 @@ export function AdminLandingPage() {
       dirtyRef.current = false
       lastSavedLanding.current = JSON.stringify(nextForm)
       if (editingId === item.id) resetUpload()
-      setNotice('File deleted.')
+      markOk()
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Delete failed')
     }
@@ -224,7 +235,7 @@ export function AdminLandingPage() {
       <div>
         <h1 className="font-display text-3xl text-gold">Landing page</h1>
         <p className="mt-1 text-sm text-zinc-400">
-          These 6 blocks are the landing page. Change a field, then click <span className="font-semibold text-gold">Save</span>. After a green Saved message, open /offer — it will show the same content.
+          These 6 blocks are the landing page. Change a field, then click <span className="font-semibold text-gold">Save</span>. When it says <span className="font-semibold text-emerald-400">OK</span>, /offer is updated.
         </p>
         <a
           href="/offer"
@@ -235,7 +246,9 @@ export function AdminLandingPage() {
           Open landing page →
         </a>
         {notice ? (
-          <p className={`mt-2 text-sm font-semibold ${notice.toLowerCase().includes('fail') || notice.toLowerCase().includes('error') ? 'text-red-400' : 'text-emerald-400'}`}>
+          <p
+            className={`mt-3 text-2xl font-extrabold ${notice === 'OK' ? 'text-emerald-400' : notice.toLowerCase().includes('fail') || notice.toLowerCase().includes('error') ? 'text-red-400' : 'text-emerald-400'}`}
+          >
             {notice}
           </p>
         ) : null}
@@ -470,7 +483,7 @@ export function AdminLandingPage() {
               This product shows on /offer checkout. The dropdown picks which ticked photo is the cover — not a Home product.
             </span>
           </label>
-          <SaveBtn saving={saving} />
+          <SaveBtn saving={saving} ok={savedOk} />
         </section>
 
         <section className="space-y-4 rounded-2xl border border-white/10 bg-white/5 p-4">
@@ -501,7 +514,7 @@ export function AdminLandingPage() {
             />
             <span className="mt-1 block text-xs text-zinc-500">Used on hero buttons and on each photo. Empty hides those buttons.</span>
           </label>
-          <SaveBtn saving={saving} />
+          <SaveBtn saving={saving} ok={savedOk} />
         </section>
 
         <section className="space-y-4 rounded-2xl border border-white/10 bg-white/5 p-4">
@@ -525,7 +538,7 @@ export function AdminLandingPage() {
               Number a line yourself with 1. 2. 3. Lines without a number show as headings. Use Title: details to split heading and description. Save after edit — deleted lines leave the landing page, changed lines update it.
             </span>
           </label>
-          <SaveBtn saving={saving} />
+          <SaveBtn saving={saving} ok={savedOk} />
         </section>
 
         <section className="space-y-4 rounded-2xl border border-white/10 bg-white/5 p-4">
@@ -546,7 +559,7 @@ export function AdminLandingPage() {
               className="mt-1 min-h-28 w-full rounded-xl bg-white/5 px-3 py-3 text-zinc-100"
             />
           </label>
-          <SaveBtn saving={saving} />
+          <SaveBtn saving={saving} ok={savedOk} />
         </section>
 
         <section className="space-y-4 rounded-2xl border border-white/10 bg-white/5 p-4">
@@ -567,7 +580,7 @@ export function AdminLandingPage() {
               className="mt-1 min-h-28 w-full rounded-xl bg-white/5 px-3 py-3 text-zinc-100"
             />
           </label>
-          <SaveBtn saving={saving} />
+          <SaveBtn saving={saving} ok={savedOk} />
         </section>
 
         <section className="space-y-4 rounded-2xl border border-white/10 bg-white/5 p-4">
@@ -612,7 +625,7 @@ export function AdminLandingPage() {
               className="mt-1 min-h-20 w-full rounded-xl bg-white/5 px-3 py-3 text-zinc-100"
             />
           </label>
-          <SaveBtn saving={saving} />
+          <SaveBtn saving={saving} ok={savedOk} />
         </section>
 
         <section className="space-y-4 rounded-2xl border border-white/10 bg-white/5 p-4">
@@ -657,7 +670,7 @@ export function AdminLandingPage() {
               className="mt-1 min-h-20 w-full rounded-xl bg-white/5 px-3 py-3 text-zinc-100"
             />
           </label>
-          <SaveBtn saving={saving} />
+          <SaveBtn saving={saving} ok={savedOk} />
         </section>
 
         <section className="space-y-3 rounded-2xl border border-gold/30 bg-gold/10 p-4">

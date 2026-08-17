@@ -15,6 +15,29 @@ function fail(error: { message: string } | null) {
   if (error) throw new Error(error.message)
 }
 
+function missingColumn(message: string) {
+  const match =
+    message.match(/could not find the '([^']+)' column/i) ||
+    message.match(/column "([^"]+)" of relation/i) ||
+    message.match(/column "([^"]+)" does not exist/i)
+  return match?.[1] ?? ''
+}
+
+async function upsertLandingRow(payload: Record<string, unknown>) {
+  if (!supabase) return
+  const body = { ...payload }
+  for (let i = 0; i < 25; i++) {
+    const { error } = await supabase.from('landing_content').upsert(body)
+    if (!error) return
+    const column = missingColumn(error.message)
+    if (column && column in body) {
+      delete body[column]
+      continue
+    }
+    fail(error)
+  }
+}
+
 async function requireAdminSession() {
   if (!supabase) return
   const { data } = await supabase.auth.getSession()
@@ -451,7 +474,7 @@ export async function cloudDeleteMedia(id: string) {
 export async function cloudSaveLanding(landing: LandingContent, updatedAt = new Date().toISOString()) {
   if (!supabase) return
   await requireAdminSession()
-  const payload = {
+  await upsertLandingRow({
     id: 1,
     hero_title: landing.heroTitle,
     hero_subtitle: landing.heroSubtitle,
@@ -479,35 +502,7 @@ export async function cloudSaveLanding(landing: LandingContent, updatedAt = new 
     checkout_submit_label: landing.checkoutSubmitLabel ?? '',
     checkout_cod_note: landing.checkoutCodNote ?? '',
     updated_at: updatedAt,
-  }
-  const { error } = await supabase.from('landing_content').upsert(payload)
-  if (error && /column/i.test(error.message)) {
-    const rest = { ...payload } as Record<string, unknown>
-    if (/offer_title|offer_price|offer_compare_price/i.test(error.message)) {
-      delete rest.offer_title
-      delete rest.offer_price
-      delete rest.offer_compare_price
-    }
-    if (/offer_media_ids/i.test(error.message)) delete rest.offer_media_ids
-    if (/meta_pixel_id/i.test(error.message)) delete rest.meta_pixel_id
-    if (/cta_label|checkout_title|help_title|help_subtitle/i.test(error.message)) {
-      delete rest.cta_label
-      delete rest.checkout_title
-      delete rest.help_title
-      delete rest.help_subtitle
-    }
-    if (/checkout_billing_title|checkout_order_title|checkout_submit_label|checkout_cod_note/i.test(error.message)) {
-      delete rest.checkout_billing_title
-      delete rest.checkout_order_title
-      delete rest.checkout_submit_label
-      delete rest.checkout_cod_note
-    }
-    if (/updated_at/i.test(error.message)) delete rest.updated_at
-    const retry = await supabase.from('landing_content').upsert(rest)
-    fail(retry.error)
-    return
-  }
-  fail(error)
+  })
 }
 
 export async function cloudSaveSite(site: SiteContent) {

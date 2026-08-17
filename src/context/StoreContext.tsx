@@ -58,6 +58,7 @@ type StoreContextValue = StoreSnapshot & {
   deleteMedia: (id: string) => Promise<void>
   saveLanding: (landing: LandingContent) => Promise<void>
   saveSite: (site: SiteContent) => Promise<void>
+  reloadCms: (force?: boolean) => Promise<void>
   addMessage: (input: Omit<ContactMessage, 'id' | 'read' | 'createdAt'>) => Promise<ContactMessage>
   markMessageRead: (id: string) => Promise<void>
   deleteMessage: (id: string) => Promise<void>
@@ -75,18 +76,22 @@ function cmsTime(value?: string) {
 }
 
 function markLocalCmsWrite(at = '') {
-  ignoreRemoteCmsUntil = Date.now() + 20000
+  ignoreRemoteCmsUntil = Date.now() + 60000
   if (at) publishedCmsAt = at
 }
 
 function applyRemoteCms(
   prev: StoreSnapshot,
   cloud: Partial<StoreSnapshot> & { hasLanding?: boolean; hasMedia?: boolean },
+  force = false,
 ): StoreSnapshot {
   const localTs = prev.cmsUpdatedAt || ''
   const cloudTs = cloud.cmsUpdatedAt || ''
   const keepLocal =
-    Date.now() < ignoreRemoteCmsUntil || cmsTime(publishedCmsAt) > cmsTime(cloudTs)
+    !force &&
+    (Date.now() < ignoreRemoteCmsUntil ||
+      cmsTime(publishedCmsAt) > cmsTime(cloudTs) ||
+      cmsTime(localTs) > cmsTime(cloudTs))
   if (keepLocal) {
     return persist({
       ...prev,
@@ -200,17 +205,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     return onLocalSnapshotChange(() => {
-      setSnapshot((prev) => {
-        const next = loadSnapshot()
-        if (!isSupabaseEnabled) return next
-        return {
-          ...next,
-          landing: prev.landing,
-          site: prev.site,
-          media: prev.media,
-          cmsUpdatedAt: prev.cmsUpdatedAt,
-        }
-      })
+      setSnapshot(loadSnapshot())
     })
   }, [])
 
@@ -261,7 +256,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       })
     }
     pullCms()
-    const poll = window.setInterval(pullCms, 10000)
+    const poll = window.setInterval(pullCms, 4000)
     const onVisible = () => {
       if (document.visibilityState === 'visible') pullCms()
     }
@@ -422,7 +417,24 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       const cmsUpdatedAt = stamp()
       markLocalCmsWrite(cmsUpdatedAt)
       commit((prev) => ({ ...prev, landing, cmsUpdatedAt }))
-      await sync(() => cloudSaveLanding(landing, cmsUpdatedAt), true)
+      await sync(async () => {
+        await cloudSaveLanding(landing, cmsUpdatedAt)
+        const cloud = await fetchCloudCms()
+        if (!cloud?.hasLanding || !cloud.landing) return
+        const got = normalizeLanding(cloud.landing)
+        const want = normalizeLanding(landing)
+        if (
+          got.offerTitle !== want.offerTitle ||
+          got.heroTitle !== want.heroTitle ||
+          got.offerPrice !== want.offerPrice ||
+          got.ctaLabel !== want.ctaLabel
+        ) {
+          throw new Error(
+            'Log in with your admin email and password, then click Save again so /offer can show this landing.',
+          )
+        }
+        setSnapshot((prev) => applyRemoteCms(prev, cloud, true))
+      }, true)
     },
     [commit, sync],
   )
@@ -436,6 +448,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     },
     [commit, sync],
   )
+
+  const reloadCms = useCallback(async (force = false) => {
+    if (!isSupabaseEnabled) return
+    const cloud = await fetchCloudCms()
+    if (!cloud) return
+    setSnapshot((prev) => applyRemoteCms(prev, cloud, force))
+  }, [])
 
   const addMessage = useCallback(
     async (input: Omit<ContactMessage, 'id' | 'read' | 'createdAt'>) => {
@@ -491,6 +510,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       deleteMedia,
       saveLanding,
       saveSite,
+      reloadCms,
       addMessage,
       markMessageRead,
       deleteMessage,
@@ -510,6 +530,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       deleteMedia,
       saveLanding,
       saveSite,
+      reloadCms,
       addMessage,
       markMessageRead,
       deleteMessage,
