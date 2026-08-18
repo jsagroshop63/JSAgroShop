@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { useAuth } from '@/context/AuthContext'
 import { isSupabaseEnabled } from '@/lib/supabase'
 
-const PROJECT_REF = 'bvmlajrseganhjekglro'
+const PROJECT_REF = 'iecmzlxtxqauctlclkqa'
 const USERS_URL = `https://supabase.com/dashboard/project/${PROJECT_REF}/auth/users`
 const ADD_USER_URL = `https://supabase.com/dashboard/project/${PROJECT_REF}/auth/users`
 const ADMIN_EMAIL = import.meta.env.VITE_ADMIN_EMAIL || 'jsagroshop63@gmail.com'
