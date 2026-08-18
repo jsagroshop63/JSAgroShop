@@ -11,7 +11,8 @@
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview",
-    "setup:supabase": "npx --yes tsx scripts/setup-supabase.ts"
+    "setup:supabase": "npx --yes tsx scripts/setup-supabase.ts",
+    "repair:supabase": "npx --yes tsx scripts/repair-supabase.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.3",

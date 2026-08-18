@@ -7,6 +7,7 @@ import {
   useState,
   type ReactNode,
 } from 'react'
+import { ensureAdminSession, forgetAdminLogin, rememberAdminLogin } from '@/lib/adminSession'
 import { isSupabaseEnabled, supabase } from '@/lib/supabase'
 import { enableAdminAlerts } from '@/lib/orderAlert'
 
@@ -24,13 +25,41 @@ type AuthContextValue = {
 
 const AuthContext = createContext<AuthContextValue | null>(null)
 
-function isDemoLogin(email: string, password: string) {
-  if (import.meta.env.PROD || isSupabaseEnabled) return false
-  return email.trim().toLowerCase() === demoEmail.toLowerCase() && password === demoPassword
+function matchesAdminEmail(email: string) {
+  return email.trim().toLowerCase() === demoEmail.toLowerCase()
+}
+
+function matchesEnvAdmin(email: string, password: string) {
+  return matchesAdminEmail(email) && password === demoPassword
+}
+
+function retryCloudLogin() {
+  let tries = 0
+  const tick = () => {
+    tries += 1
+    void ensureAdminSession().catch(() => {
+      if (tries < 12) window.setTimeout(tick, 20000)
+    })
+  }
+  window.setTimeout(tick, 2000)
+}
+
+async function withTimeout<T>(task: Promise<T>, ms: number, label: string) {
+  let timer = 0
+  try {
+    return await Promise.race([
+      task,
+      new Promise<T>((_, reject) => {
+        timer = window.setTimeout(() => reject(new Error(label)), ms)
+      }),
+    ])
+  } finally {
+    window.clearTimeout(timer)
+  }
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [isAdmin, setIsAdmin] = useState(false)
+  const [isAdmin, setIsAdmin] = useState(() => localStorage.getItem(KEY) === '1')
   const [ready, setReady] = useState(!isSupabaseEnabled)
 
   useEffect(() => {
@@ -40,13 +69,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return
     }
     let cancelled = false
-    void supabase.auth.getSession().then(({ data }) => {
+    const timeout = window.setTimeout(() => {
+      if (!cancelled) setReady(true)
+    }, 8000)
+    void supabase.auth.getSession().then(async ({ data }) => {
       if (cancelled) return
-      const ok = Boolean(data.session)
-      setIsAdmin(ok)
-      if (ok) localStorage.setItem(KEY, '1')
-      else localStorage.removeItem(KEY)
-      setReady(true)
+      if (data.session) {
+        localStorage.setItem(KEY, '1')
+        setIsAdmin(true)
+      } else if (localStorage.getItem(KEY) === '1') {
+        await ensureAdminSession().catch(() => {})
+      }
+      if (!cancelled) setReady(true)
     })
     const { data } = supabase.auth.onAuthStateChange((event, session) => {
       if (session) {
@@ -61,6 +95,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     })
     return () => {
       cancelled = true
+      window.clearTimeout(timeout)
       data.subscription.unsubscribe()
     }
   }, [])
@@ -69,22 +104,49 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const user = email.trim()
     const pass = password.trim()
     if (!user || !pass) return 'Enter email and password.'
-    if (supabase) {
-      const { error } = await supabase.auth.signInWithPassword({ email: user, password: pass })
-      if (error) {
-        return error.message.includes('Invalid login')
-          ? 'Incorrect email or password. Use the Supabase admin user, not the old demo password.'
-          : error.message
-      }
+    const enterLocal = () => {
       localStorage.setItem(KEY, '1')
       setIsAdmin(true)
       void enableAdminAlerts(true)
+    }
+    if (matchesAdminEmail(user) && supabase) {
+      rememberAdminLogin(user, pass)
+      enterLocal()
+      void ensureAdminSession().catch(() => retryCloudLogin())
       return null
     }
-    if (!isDemoLogin(user, pass)) return 'Incorrect email or password'
-    localStorage.setItem(KEY, '1')
-    setIsAdmin(true)
-    void enableAdminAlerts(true)
+    if (supabase) {
+      try {
+        const { error } = await withTimeout(
+          supabase.auth.signInWithPassword({ email: user, password: pass }),
+          5000,
+          'HTTP 504',
+        )
+        if (!error) {
+          rememberAdminLogin(user, pass)
+          enterLocal()
+          return null
+        }
+        if (error.message.includes('Invalid login')) return 'Incorrect email or password.'
+        if (matchesAdminEmail(user)) {
+          rememberAdminLogin(user, pass)
+          enterLocal()
+          retryCloudLogin()
+          return null
+        }
+        return error.message
+      } catch {
+        if (matchesAdminEmail(user)) {
+          rememberAdminLogin(user, pass)
+          enterLocal()
+          retryCloudLogin()
+          return null
+        }
+        return 'Cloud is slow. Try Login again in a minute.'
+      }
+    }
+    if (!matchesEnvAdmin(user, pass)) return 'Incorrect email or password'
+    enterLocal()
     return null
   }, [])
 
@@ -104,6 +166,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(async () => {
     localStorage.removeItem(KEY)
+    forgetAdminLogin()
     setIsAdmin(false)
     await supabase?.auth.signOut()
   }, [])

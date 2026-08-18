@@ -7,6 +7,8 @@ import type {
   SiteContent,
   StoreSnapshot,
 } from './types'
+import { ensureAdminSession } from './adminSession'
+import { pauseCmsPoll, resumeCmsPoll } from './cmsSync'
 import { isSupabaseEnabled, supabase } from './supabase'
 import { customersFromOrders } from './localStore'
 import { normalizeLanding, normalizeSite, seedLanding, seedSite } from './seed'
@@ -39,13 +41,7 @@ async function upsertLandingRow(payload: Record<string, unknown>) {
 }
 
 async function requireAdminSession() {
-  if (!supabase) return
-  const { data } = await supabase.auth.getSession()
-  if (!data.session) {
-    throw new Error(
-      'Log in with your admin email and password so this landing page is published to every visitor.',
-    )
-  }
+  await ensureAdminSession()
 }
 
 function asStringList(value: unknown): string[] {
@@ -326,6 +322,7 @@ export function subscribeToOrders(handlers: {
 
 export async function cloudUpsertProduct(product: Product) {
   if (!supabase) return
+  await requireAdminSession()
   const { error } = await supabase.from('products').upsert({
     id: product.id,
     name: product.name,
@@ -345,6 +342,7 @@ export async function cloudUpsertProduct(product: Product) {
 
 export async function cloudDeleteProduct(id: string) {
   if (!supabase) return
+  await requireAdminSession()
   const { error } = await supabase.from('products').delete().eq('id', id)
   fail(error)
 }
@@ -445,6 +443,7 @@ export async function cloudDeleteOrder(id: string) {
 
 export async function cloudUpsertSlide(slide: CarouselSlide) {
   if (!supabase) return
+  await requireAdminSession()
   const { error } = await supabase.from('carousel_slides').upsert({
     id: slide.id,
     image: slide.image,
@@ -460,6 +459,7 @@ export async function cloudUpsertSlide(slide: CarouselSlide) {
 
 export async function cloudDeleteSlide(id: string) {
   if (!supabase) return
+  await requireAdminSession()
   const { error } = await supabase.from('carousel_slides').delete().eq('id', id)
   fail(error)
 }
@@ -467,6 +467,9 @@ export async function cloudDeleteSlide(id: string) {
 export async function cloudUpsertMedia(item: LandingMedia) {
   if (!supabase) return
   await requireAdminSession()
+  if (item.url.startsWith('data:') || item.url.startsWith('blob:')) {
+    throw new Error('Photo stayed only in this browser. Upload the file again and wait for Uploading to finish.')
+  }
   const { error } = await supabase.from('landing_media').upsert({
     id: item.id,
     type: item.type,
@@ -477,13 +480,25 @@ export async function cloudUpsertMedia(item: LandingMedia) {
     active: item.active,
   })
   fail(error)
+  const check = await supabase.from('landing_media').select('id,url').eq('id', item.id).maybeSingle()
+  if (check.error || !check.data?.url) {
+    throw new Error('Cloud did not keep this photo. Log in again, then upload and Save file.')
+  }
 }
 
 export async function cloudDeleteMedia(id: string) {
   if (!supabase) return
   await requireAdminSession()
+  const { data } = await supabase.from('landing_media').select('url').eq('id', id).maybeSingle()
   const { error } = await supabase.from('landing_media').delete().eq('id', id)
   fail(error)
+  const url = String(data?.url ?? '')
+  const marker = '/storage/v1/object/public/media/'
+  const index = url.indexOf(marker)
+  if (index >= 0) {
+    const path = decodeURIComponent(url.slice(index + marker.length).split('?')[0] ?? '')
+    if (path) await supabase.storage.from('media').remove([path])
+  }
 }
 
 export async function cloudSaveLanding(landing: LandingContent, updatedAt = new Date().toISOString()) {
@@ -547,21 +562,47 @@ export async function cloudSaveSite(site: SiteContent) {
 
 export async function uploadMediaFile(file: File): Promise<string> {
   if (supabase) {
-    await requireAdminSession()
-    const path = `${Date.now()}-${file.name.replace(/\s+/g, '-')}`
-    const { error } = await supabase.storage.from('media').upload(path, file, {
-      cacheControl: '0',
-      upsert: false,
-    })
-    if (error) {
-      throw new Error(
-        error.message.includes('row-level security') || error.message.includes('policy')
-          ? 'Log in with your admin email, then upload again so every browser can see the file.'
-          : `Upload failed: ${error.message}`,
-      )
+    pauseCmsPoll()
+    try {
+      await requireAdminSession()
+      const prepared = file.type.startsWith('image/') ? await compressImageForCloud(file) : file
+      if (!prepared.type.startsWith('image/') && prepared.size > 8 * 1024 * 1024) {
+        throw new Error('Video is too large for this cloud. Upload it to YouTube, then paste the link.')
+      }
+      const ext = prepared.type === 'image/jpeg' ? '.jpg' : prepared.name.includes('.') ? '' : ''
+      const safeName = (prepared.name || file.name).replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/-+/g, '-').slice(0, 80)
+      const path = `${Date.now()}-${safeName || 'file'}${safeName.endsWith('.jpg') || !ext ? '' : ext}`
+      let error: { message: string } | null = null
+      for (let i = 0; i < 6; i++) {
+        const uploaded = await supabase.storage.from('media').upload(path, prepared, {
+          cacheControl: '3600',
+          upsert: true,
+          contentType: prepared.type || file.type || undefined,
+        })
+        error = uploaded.error
+        if (!error) break
+        if (/row-level security|policy/i.test(error.message)) break
+        if (!/timeout|timed out|503|504|502|network|fetch/i.test(error.message) && i >= 2) break
+        await new Promise((resolve) => setTimeout(resolve, 2000 * (i + 1)))
+      }
+      if (error) {
+        throw new Error(
+          error.message.includes('row-level security') || error.message.includes('policy')
+            ? 'Log in with your admin email, then upload again so every browser can see the file.'
+            : /timeout|timed out/i.test(error.message)
+              ? 'Cloud is busy (database timeout). Wait 30 seconds, then upload a smaller photo again.'
+              : `Upload failed: ${error.message}`,
+        )
+      }
+      const { data } = supabase.storage.from('media').getPublicUrl(path)
+      const publicUrl = data.publicUrl
+      if (!publicUrl.includes('/storage/v1/object/public/media/')) {
+        throw new Error('Upload did not reach cloud storage. Log in and try again.')
+      }
+      return publicUrl
+    } finally {
+      resumeCmsPoll()
     }
-    const { data } = supabase.storage.from('media').getPublicUrl(path)
-    return data.publicUrl
   }
   if (file.type.startsWith('image/')) return compressImageFile(file)
   return readAsDataUrl(file)
@@ -574,6 +615,29 @@ function readAsDataUrl(file: File): Promise<string> {
     reader.onerror = () => reject(reader.error)
     reader.readAsDataURL(file)
   })
+}
+
+async function compressImageForCloud(file: File): Promise<File> {
+  try {
+    const bitmap = await createImageBitmap(file)
+    const max = 1200
+    const scale = Math.min(1, max / Math.max(bitmap.width, bitmap.height))
+    const canvas = document.createElement('canvas')
+    canvas.width = Math.max(1, Math.round(bitmap.width * scale))
+    canvas.height = Math.max(1, Math.round(bitmap.height * scale))
+    const ctx = canvas.getContext('2d')
+    if (!ctx) {
+      bitmap.close()
+      return file
+    }
+    ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height)
+    bitmap.close()
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.72))
+    if (!blob) return file
+    return new File([blob], file.name.replace(/\.[^.]+$/, '') + '.jpg', { type: 'image/jpeg' })
+  } catch {
+    return file
+  }
 }
 
 async function compressImageFile(file: File): Promise<string> {

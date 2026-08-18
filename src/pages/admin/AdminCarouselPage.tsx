@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { useConfirm } from '@/components/admin/ConfirmDialog'
 import { AdminUploadField } from '@/components/admin/AdminUploadField'
 import { SafeImage } from '@/components/ui/SafeImage'
@@ -23,6 +23,15 @@ export function AdminCarouselPage() {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [notice, setNotice] = useState('')
+
+  useEffect(() => {
+    if (!saving) return
+    const timer = window.setTimeout(() => {
+      setSaving(false)
+      setNotice('Save timed out. Click Save again.')
+    }, 20000)
+    return () => window.clearTimeout(timer)
+  }, [saving])
 
   function resetForm() {
     setForm(empty)

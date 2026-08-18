@@ -31,6 +31,33 @@ function youtubeId(url: string) {
   return null
 }
 
+type LandingSection = 'product' | 'hero' | 'package' | 'story' | 'why' | 'help' | 'checkout' | 'ads'
+
+const SECTION_FIELDS: Record<LandingSection, readonly (keyof LandingContent)[]> = {
+  product: ['offerTitle', 'offerPrice', 'offerComparePrice', 'offerMediaIds', 'offerProductId'],
+  hero: ['heroTitle', 'heroSubtitle', 'ctaLabel'],
+  package: ['packageTitle', 'packageItems'],
+  story: ['storyTitle', 'storyBody'],
+  why: ['whyTitle', 'whyItems'],
+  help: ['helpTitle', 'helpSubtitle', 'paymentTitle', 'paymentNumber', 'paymentNote'],
+  checkout: [
+    'checkoutTitle',
+    'checkoutBillingTitle',
+    'checkoutOrderTitle',
+    'checkoutSubmitLabel',
+    'checkoutCodNote',
+  ],
+  ads: ['metaPixelId'],
+}
+
+function pickSection(src: LandingContent, section: LandingSection): Partial<LandingContent> {
+  const out: Partial<LandingContent> = {}
+  for (const key of SECTION_FIELDS[section]) {
+    Object.assign(out, { [key]: src[key] })
+  }
+  return out
+}
+
 const emptyMedia = {
   type: 'image' as LandingMedia['type'],
   url: '',
@@ -60,16 +87,28 @@ export function AdminLandingPage() {
   const [upload, setUpload] = useState(emptyMedia)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [savingFile, setSavingFile] = useState(false)
-  const [saving, setSaving] = useState(false)
+  const [busy, setBusy] = useState<LandingSection | 'shop' | ''>('')
   const [notice, setNotice] = useState('')
-  const [savedOk, setSavedOk] = useState(false)
+  const [okFor, setOkFor] = useState<LandingSection | 'shop' | ''>('')
   const okTimer = useRef(0)
+  const mediaSaveTimer = useRef(0)
+  const dirtySections = useRef(new Set<LandingSection>())
 
-  function markOk() {
+  useEffect(() => {
+    if (!busy && !savingFile) return
+    const timer = window.setTimeout(() => {
+      setBusy('')
+      setSavingFile(false)
+      setNotice('Save timed out. Wait 30 seconds, then click Save again.')
+    }, 45000)
+    return () => window.clearTimeout(timer)
+  }, [busy, savingFile])
+
+  function markOk(section: LandingSection | 'shop' | 'file' = 'product') {
     window.clearTimeout(okTimer.current)
-    setSavedOk(true)
-    setNotice('OK')
-    okTimer.current = window.setTimeout(() => setSavedOk(false), 4000)
+    if (section !== 'file') setOkFor(section)
+    setNotice('OK — /offer updated')
+    okTimer.current = window.setTimeout(() => setOkFor(''), 4000)
   }
   const [copied, setCopied] = useState(false)
   const [landingUrl, setLandingUrl] = useState('')
@@ -97,8 +136,16 @@ export function AdminLandingPage() {
     setForm((prev) => (typeof update === 'function' ? update(prev) : { ...prev, ...update }))
   }
 
+  function patchSection(
+    section: LandingSection,
+    update: Partial<LandingContent> | ((prev: LandingContent) => LandingContent),
+  ) {
+    dirtySections.current.add(section)
+    patchForm(update)
+  }
+
   useEffect(() => {
-    if (dirtyRef.current) return
+    if (dirtyRef.current || dirtySections.current.size) return
     const next = normalizeLanding(landing)
     setForm(next)
     lastSavedLanding.current = JSON.stringify(next)
@@ -118,19 +165,27 @@ export function AdminLandingPage() {
     setLandingUrl(adsUrl())
   }, [])
 
-  async function persistLanding() {
-    const uploaded = media.filter((item) => !isDemoLandingMedia(item))
-    const chosen = formRef.current.offerMediaIds.filter((id) => uploaded.some((item) => item.id === id))
-    const next = normalizeLanding({
-      ...formRef.current,
-      offerMediaIds: chosen.length ? chosen : uploaded.map((item) => item.id),
-      offerProductId: LANDING_OFFER_ID,
-    })
+  async function persistLandingSection(section: LandingSection) {
+    const published = normalizeLanding(landing)
+    const current = formRef.current
+    let patch = pickSection(current, section)
+    if (section === 'product') {
+      const uploaded = media.filter((item) => !isDemoLandingMedia(item))
+      const chosen = current.offerMediaIds.filter((id) => uploaded.some((item) => item.id === id))
+      patch = {
+        ...patch,
+        offerMediaIds: chosen,
+        offerProductId: LANDING_OFFER_ID,
+      }
+    }
+    const next = normalizeLanding({ ...published, ...patch, offerProductId: LANDING_OFFER_ID })
     await saveLanding(next)
-    dirtyRef.current = false
+    dirtySections.current.delete(section)
+    if (!dirtySections.current.size) dirtyRef.current = false
     lastSavedLanding.current = JSON.stringify(next)
-    setForm(next)
-    formRef.current = next
+    const merged = normalizeLanding({ ...current, ...pickSection(next, section) })
+    setForm(merged)
+    formRef.current = merged
     return next
   }
 
@@ -147,23 +202,37 @@ export function AdminLandingPage() {
     setEditingId(null)
   }
 
+  function scheduleProductSave() {
+    dirtySections.current.add('product')
+    window.clearTimeout(mediaSaveTimer.current)
+    mediaSaveTimer.current = window.setTimeout(() => {
+      void persistLandingSection('product')
+        .then(() => markOk('product'))
+        .catch((error: unknown) => {
+          setNotice(error instanceof Error ? error.message : 'Save failed')
+        })
+    }, 400)
+  }
+
   function toggleMedia(id: string) {
-    patchForm((prev) => ({
+    patchSection('product', (prev) => ({
       ...prev,
       offerMediaIds: prev.offerMediaIds.includes(id)
         ? prev.offerMediaIds.filter((item) => item !== id)
         : [...prev.offerMediaIds, id],
     }))
+    scheduleProductSave()
   }
 
   function selectLandingCover(id: string) {
     if (!id) return
-    patchForm((prev) => ({
+    patchSection('product', (prev) => ({
       ...prev,
       offerMediaIds: prev.offerMediaIds.includes(id)
         ? [id, ...prev.offerMediaIds.filter((item) => item !== id)]
         : [id, ...prev.offerMediaIds],
     }))
+    scheduleProductSave()
   }
 
   async function onSaveFile(event: FormEvent) {
@@ -172,22 +241,28 @@ export function AdminLandingPage() {
       setNotice('Upload a file or paste a URL first, then click Save file.')
       return
     }
+    if (upload.url.startsWith('data:') || upload.url.startsWith('blob:')) {
+      setNotice('Photo stayed only in this browser. Upload again and wait until Uploading finishes.')
+      return
+    }
     setSavingFile(true)
     setNotice('')
-    setSavedOk(false)
+    setOkFor('')
     try {
       const item: LandingMedia = { id: editingId ?? uid('media'), ...upload }
       await saveMedia(item)
-      const nextIds = [...form.offerMediaIds, item.id].filter(
-        (id, index, list) => list.indexOf(id) === index && (id === item.id || sortedMedia.some((row) => row.id === id)),
+      const nextIds = [...formRef.current.offerMediaIds, item.id].filter(
+        (id, index, list) => list.indexOf(id) === index,
       )
-      const nextForm = normalizeLanding({ ...form, offerMediaIds: nextIds, offerProductId: LANDING_OFFER_ID })
-      setForm(nextForm)
-      formRef.current = nextForm
-      await saveLanding(nextForm)
-      dirtyRef.current = false
-      lastSavedLanding.current = JSON.stringify(nextForm)
-      markOk()
+      formRef.current = normalizeLanding({
+        ...formRef.current,
+        offerMediaIds: nextIds,
+        offerProductId: LANDING_OFFER_ID,
+      })
+      setForm(formRef.current)
+      dirtySections.current.add('product')
+      await persistLandingSection('product')
+      markOk('file')
       resetUpload()
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Save failed')
@@ -196,19 +271,33 @@ export function AdminLandingPage() {
     }
   }
 
-  async function onSaveLanding(event: FormEvent) {
+  async function onSaveSection(event: FormEvent, section: LandingSection) {
     event.preventDefault()
-    setSaving(true)
+    setBusy(section)
     setNotice('')
-    setSavedOk(false)
+    setOkFor('')
     try {
-      await persistLanding()
-      await persistSite()
-      markOk()
+      await persistLandingSection(section)
+      markOk(section)
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Save failed')
     } finally {
-      setSaving(false)
+      setBusy('')
+    }
+  }
+
+  async function onSaveShop(event: FormEvent) {
+    event.preventDefault()
+    setBusy('shop')
+    setNotice('')
+    setOkFor('')
+    try {
+      await persistSite()
+      markOk('shop')
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Save failed')
+    } finally {
+      setBusy('')
     }
   }
 
@@ -223,11 +312,9 @@ export function AdminLandingPage() {
       })
       setForm(nextForm)
       formRef.current = nextForm
-      await saveLanding(nextForm)
-      dirtyRef.current = false
-      lastSavedLanding.current = JSON.stringify(nextForm)
+      await persistLandingSection('product')
       if (editingId === item.id) resetUpload()
-      markOk()
+      markOk('product')
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Delete failed')
     }
@@ -248,7 +335,7 @@ export function AdminLandingPage() {
       <div>
         <h1 className="font-display text-3xl text-gold">Landing page</h1>
         <p className="mt-1 text-sm text-zinc-400">
-          These 6 blocks are the landing page. Change a field, then click <span className="font-semibold text-gold">Save</span>. When it says <span className="font-semibold text-emerald-400">OK</span>, /offer is updated.
+          Each Save updates only that block on /offer. Upload or delete a photo and it shows on the landing page right away.
         </p>
         <a
           href="/offer"
@@ -260,7 +347,7 @@ export function AdminLandingPage() {
         </a>
         {notice ? (
           <p
-            className={`mt-3 text-2xl font-extrabold ${notice === 'OK' ? 'text-emerald-400' : notice.toLowerCase().includes('fail') || notice.toLowerCase().includes('error') ? 'text-red-400' : 'text-emerald-400'}`}
+            className={`mt-3 text-2xl font-extrabold ${notice.startsWith('OK') ? 'text-emerald-400' : notice.toLowerCase().includes('fail') || notice.toLowerCase().includes('error') || notice.toLowerCase().includes('timeout') ? 'text-red-400' : 'text-emerald-400'}`}
           >
             {notice}
           </p>
@@ -324,12 +411,12 @@ export function AdminLandingPage() {
         </div>
       </form>
 
-      <form onSubmit={onSaveLanding} className="space-y-4">
+      <div className="space-y-4">
+        <form onSubmit={(event) => void onSaveSection(event, 'product')}>
         <section id="landing-product" className="space-y-4 rounded-2xl border border-white/10 bg-white/5 p-4">
           <p className="text-sm font-semibold text-zinc-200">Landing product — title, price, photos</p>
           <p className="text-xs text-zinc-500">
-            Tick the photos you uploaded. Only those photos appear on /offer — every phone and browser.
-          Then set title and price, and click Save until it says OK.
+            Tick a photo to show it on /offer. Untick or Delete removes it from the landing page immediately. Title/price still need Save.
           </p>
 
           <div>
@@ -339,14 +426,20 @@ export function AdminLandingPage() {
                 <button
                   type="button"
                   className="text-gold"
-                  onClick={() => patchForm((prev) => ({ ...prev, offerMediaIds: sortedMedia.map((item) => item.id) }))}
+                  onClick={() => {
+                    patchSection('product', (prev) => ({ ...prev, offerMediaIds: sortedMedia.map((item) => item.id) }))
+                    scheduleProductSave()
+                  }}
                 >
                   Select all
                 </button>
                 <button
                   type="button"
                   className="text-zinc-400"
-                  onClick={() => patchForm((prev) => ({ ...prev, offerMediaIds: [] }))}
+                  onClick={() => {
+                    patchSection('product', (prev) => ({ ...prev, offerMediaIds: [] }))
+                    scheduleProductSave()
+                  }}
                 >
                   Clear
                 </button>
@@ -497,9 +590,11 @@ export function AdminLandingPage() {
               This product shows on /offer checkout. The dropdown picks which ticked photo is the cover — not a Home product.
             </span>
           </label>
-          <SaveBtn saving={saving} ok={savedOk} />
+          <SaveBtn saving={busy === 'product'} ok={okFor === 'product'} />
         </section>
+        </form>
 
+        <form onSubmit={(event) => void onSaveSection(event, 'hero')}>
         <section className="space-y-4 rounded-2xl border border-white/10 bg-white/5 p-4">
           <p className="text-sm font-semibold text-zinc-200">1. Hero — top green block</p>
           <p className="text-xs text-zinc-500">Product title is the big heading. Hero title is the small gold line above it if they differ.</p>
@@ -528,9 +623,11 @@ export function AdminLandingPage() {
             />
             <span className="mt-1 block text-xs text-zinc-500">Used on hero buttons and on each photo. Empty hides those buttons.</span>
           </label>
-          <SaveBtn saving={saving} ok={savedOk} />
+          <SaveBtn saving={busy === 'hero'} ok={okFor === 'hero'} />
         </section>
+        </form>
 
+        <form onSubmit={(event) => void onSaveSection(event, 'package')}>
         <section className="space-y-4 rounded-2xl border border-white/10 bg-white/5 p-4">
           <p className="text-sm font-semibold text-zinc-200">2. Package list</p>
           <label className="block text-sm text-zinc-400">
@@ -552,9 +649,11 @@ export function AdminLandingPage() {
               Number a line yourself with 1. 2. 3. Lines without a number show as headings. Use Title: details to split heading and description. Save after edit — deleted lines leave the landing page, changed lines update it.
             </span>
           </label>
-          <SaveBtn saving={saving} ok={savedOk} />
+          <SaveBtn saving={busy === 'package'} ok={okFor === 'package'} />
         </section>
+        </form>
 
+        <form onSubmit={(event) => void onSaveSection(event, 'story')}>
         <section className="space-y-4 rounded-2xl border border-white/10 bg-white/5 p-4">
           <p className="text-sm font-semibold text-zinc-200">3. Story + photos</p>
           <label className="block text-sm text-zinc-400">
@@ -573,9 +672,11 @@ export function AdminLandingPage() {
               className="mt-1 min-h-28 w-full rounded-xl bg-white/5 px-3 py-3 text-zinc-100"
             />
           </label>
-          <SaveBtn saving={saving} ok={savedOk} />
+          <SaveBtn saving={busy === 'story'} ok={okFor === 'story'} />
         </section>
+        </form>
 
+        <form onSubmit={(event) => void onSaveSection(event, 'why')}>
         <section className="space-y-4 rounded-2xl border border-white/10 bg-white/5 p-4">
           <p className="text-sm font-semibold text-zinc-200">4. Why us</p>
           <label className="block text-sm text-zinc-400">
@@ -594,9 +695,11 @@ export function AdminLandingPage() {
               className="mt-1 min-h-28 w-full rounded-xl bg-white/5 px-3 py-3 text-zinc-100"
             />
           </label>
-          <SaveBtn saving={saving} ok={savedOk} />
+          <SaveBtn saving={busy === 'why'} ok={okFor === 'why'} />
         </section>
+        </form>
 
+        <form onSubmit={(event) => void onSaveSection(event, 'help')}>
         <section className="space-y-4 rounded-2xl border border-white/10 bg-white/5 p-4">
           <p className="text-sm font-semibold text-zinc-200">5. Gold help / phone block</p>
           <label className="block text-sm text-zinc-400">
@@ -639,9 +742,11 @@ export function AdminLandingPage() {
               className="mt-1 min-h-20 w-full rounded-xl bg-white/5 px-3 py-3 text-zinc-100"
             />
           </label>
-          <SaveBtn saving={saving} ok={savedOk} />
+          <SaveBtn saving={busy === 'help'} ok={okFor === 'help'} />
         </section>
+        </form>
 
+        <form onSubmit={(event) => void onSaveSection(event, 'checkout')}>
         <section className="space-y-4 rounded-2xl border border-white/10 bg-white/5 p-4">
           <p className="text-sm font-semibold text-zinc-200">6. Checkout form</p>
           <label className="block text-sm text-zinc-400">
@@ -684,9 +789,11 @@ export function AdminLandingPage() {
               className="mt-1 min-h-20 w-full rounded-xl bg-white/5 px-3 py-3 text-zinc-100"
             />
           </label>
-          <SaveBtn saving={saving} ok={savedOk} />
+          <SaveBtn saving={busy === 'checkout'} ok={okFor === 'checkout'} />
         </section>
+        </form>
 
+        <form onSubmit={(event) => void onSaveSection(event, 'ads')}>
         <section className="space-y-3 rounded-2xl border border-gold/30 bg-gold/10 p-4">
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gold">Facebook ads</p>
           <div className="flex flex-col gap-2 sm:flex-row">
@@ -713,18 +820,23 @@ export function AdminLandingPage() {
               className="mt-1 w-full rounded-xl bg-black/30 px-3 py-3 text-zinc-100"
             />
           </label>
+          <SaveBtn saving={busy === 'ads'} ok={okFor === 'ads'} />
         </section>
+        </form>
 
-        <ShopSettingsFields
-          form={siteForm}
-          onChange={(next) => {
-            siteDirtyRef.current = true
-            setSiteForm(next)
-          }}
-        />
-
-        <SaveBtn saving={saving} ok={savedOk} />
-      </form>
+        <form onSubmit={(event) => void onSaveShop(event)}>
+          <ShopSettingsFields
+            form={siteForm}
+            onChange={(next) => {
+              siteDirtyRef.current = true
+              setSiteForm(next)
+            }}
+          />
+          <div className="mt-3">
+            <SaveBtn saving={busy === 'shop'} ok={okFor === 'shop'} />
+          </div>
+        </form>
+      </div>
     </div>
   )
 }

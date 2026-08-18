@@ -90,7 +90,7 @@ export function LandingPage() {
 
   useEffect(() => {
     void reloadCms(true)
-    const poll = window.setInterval(() => void reloadCms(true), 4000)
+    const poll = window.setInterval(() => void reloadCms(true), 20000)
     const onVisible = () => {
       if (document.visibilityState === 'visible') void reloadCms(true)
     }
@@ -261,6 +261,50 @@ export function LandingPage() {
             </h2>
           ) : null}
           {content.storyBody ? <p className="mx-auto max-w-3xl leading-relaxed">{content.storyBody}</p> : null}
+          {gallery.length ? (
+            <div className="mx-auto mt-10 flex max-w-5xl flex-wrap justify-center gap-4">
+              {gallery.map((item) => (
+                <figure
+                  key={item.id}
+                  className="w-full max-w-sm overflow-hidden rounded-xl border-4 border-gold bg-leaf-deep sm:w-[calc(50%-0.5rem)] lg:w-[calc(33.333%-0.7rem)]"
+                >
+                  {item.type === 'video' ? (
+                    <div>
+                      <div className="aspect-video">
+                        {youtubeId(item.url) ? (
+                          <iframe
+                            className="size-full"
+                            src={`https://www.youtube.com/embed/${youtubeId(item.url)}`}
+                            title={item.title}
+                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                            allowFullScreen
+                          />
+                        ) : (
+                          <video src={item.url} controls className="size-full object-cover" />
+                        )}
+                      </div>
+                      <OrderButton
+                        label={orderLabel}
+                        onClick={goToProductSelect}
+                        className="block bg-gold py-3 text-lg font-extrabold text-black"
+                      />
+                    </div>
+                  ) : (
+                    <a href="#product-select" onClick={goToProductSelect} className="block">
+                      <SafeImage src={item.url} alt={item.title} className="aspect-square w-full object-cover" />
+                      <span className="block bg-gold py-3 text-lg font-extrabold text-black">{orderLabel}</span>
+                    </a>
+                  )}
+                  {(item.title || item.caption) && (
+                    <figcaption className="bg-leaf px-3 py-2 text-center text-sm text-gold">
+                      <p className="font-bold">{item.title}</p>
+                      {item.caption ? <p className="text-cream/80">{item.caption}</p> : null}
+                    </figcaption>
+                  )}
+                </figure>
+              ))}
+            </div>
+          ) : null}
         </section>
       ) : null}
 
@@ -276,53 +320,6 @@ export function LandingPage() {
               ))}
             </ul>
           ) : null}
-        </section>
-      ) : null}
-
-      {gallery.length ? (
-        <section className="px-4 py-12">
-          <div className="mx-auto flex max-w-5xl flex-wrap justify-center gap-4">
-            {gallery.map((item) => (
-              <figure
-                key={item.id}
-                className="w-full max-w-sm overflow-hidden rounded-xl border-4 border-gold bg-leaf-deep sm:w-[calc(50%-0.5rem)] lg:w-[calc(33.333%-0.7rem)]"
-              >
-                {item.type === 'video' ? (
-                  <div>
-                    <div className="aspect-video">
-                      {youtubeId(item.url) ? (
-                        <iframe
-                          className="size-full"
-                          src={`https://www.youtube.com/embed/${youtubeId(item.url)}`}
-                          title={item.title}
-                          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                          allowFullScreen
-                        />
-                      ) : (
-                        <video src={item.url} controls className="size-full object-cover" />
-                      )}
-                    </div>
-                    <OrderButton
-                      label={orderLabel}
-                      onClick={goToProductSelect}
-                      className="block bg-gold py-3 text-lg font-extrabold text-black"
-                    />
-                  </div>
-                ) : (
-                  <a href="#product-select" onClick={goToProductSelect} className="block">
-                    <SafeImage src={item.url} alt={item.title} fallback={null} className="aspect-square w-full object-cover" />
-                    <span className="block bg-gold py-3 text-lg font-extrabold text-black">{orderLabel}</span>
-                  </a>
-                )}
-                {(item.title || item.caption) && (
-                  <figcaption className="bg-leaf px-3 py-2 text-center text-sm text-gold">
-                    <p className="font-bold">{item.title}</p>
-                    {item.caption ? <p className="text-cream/80">{item.caption}</p> : null}
-                  </figcaption>
-                )}
-              </figure>
-            ))}
-          </div>
         </section>
       ) : null}
 

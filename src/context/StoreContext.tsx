@@ -19,6 +19,8 @@ import type {
   StoreSnapshot,
 } from '@/lib/types'
 import { uid } from '@/lib/utils'
+import { withTimeout } from '@/lib/timeout'
+import { isCmsPollPaused, notifyCmsChanged, onCmsChanged, pauseCmsPoll, resumeCmsPoll } from '@/lib/cmsSync'
 import { customersFromOrders, loadSnapshot, onLocalSnapshotChange, saveSnapshot } from '@/lib/localStore'
 import {
   cloudDeleteMedia,
@@ -76,7 +78,7 @@ function cmsTime(value?: string) {
 }
 
 function markLocalCmsWrite(at = '') {
-  ignoreRemoteCmsUntil = Date.now() + 60000
+  ignoreRemoteCmsUntil = Date.now() + 4000
   if (at) publishedCmsAt = at
 }
 
@@ -262,7 +264,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       })
     }
     pull()
-    const poll = window.setInterval(pull, 8000)
+    const poll = window.setInterval(pull, 30000)
     return () => {
       unsub()
       window.clearInterval(poll)
@@ -272,13 +274,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!isSupabaseEnabled) return
     const pullCms = () => {
+      if (isCmsPollPaused()) return
       void fetchCloudCms().then((cloud) => {
         if (!cloud) return
         setSnapshot((prev) => applyRemoteCms(prev, cloud))
       })
     }
     pullCms()
-    const poll = window.setInterval(pullCms, 4000)
+    const poll = window.setInterval(pullCms, 45000)
     const onVisible = () => {
       if (document.visibilityState === 'visible') pullCms()
     }
@@ -296,13 +299,20 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const sync = useCallback(async (task: () => Promise<void>, rethrow = false) => {
+    pauseCmsPoll()
     try {
-      await task()
+      await withTimeout(task(), 40000, 'Save timed out. Wait 30 seconds, then click Save again.')
       setSyncError('')
+      notifyCmsChanged()
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Cloud sync failed'
+      const raw = error instanceof Error ? error.message : 'Cloud sync failed'
+      const message = /503|502|504|busy/i.test(raw)
+        ? 'Cloud is busy (HTTP 503). Wait 30 seconds, then click Save again.'
+        : raw
       setSyncError(message)
       if (rethrow) throw new Error(message)
+    } finally {
+      resumeCmsPoll()
     }
   }, [])
 
@@ -425,6 +435,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           'Photo/video stayed only in this browser. Upload again and wait until it finishes, then click Save.',
         )
       }
+      await sync(() => cloudUpsertMedia(item), true)
       const cmsUpdatedAt = stamp()
       markLocalCmsWrite(cmsUpdatedAt)
       commit((prev) => ({
@@ -434,13 +445,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           ? prev.media.map((row) => (row.id === item.id ? item : row))
           : [...prev.media, item],
       }))
-      await sync(() => cloudUpsertMedia(item), true)
     },
     [commit, sync],
   )
 
   const deleteMedia = useCallback(
     async (id: string) => {
+      await sync(() => cloudDeleteMedia(id), true)
       const cmsUpdatedAt = stamp()
       markLocalCmsWrite(cmsUpdatedAt)
       commit((prev) => ({
@@ -448,7 +459,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         cmsUpdatedAt,
         media: prev.media.filter((item) => item.id !== id),
       }))
-      await sync(() => cloudDeleteMedia(id), true)
     },
     [commit, sync],
   )
@@ -456,26 +466,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const saveLanding = useCallback(
     async (landing: LandingContent) => {
       const cmsUpdatedAt = stamp()
-      markLocalCmsWrite(cmsUpdatedAt)
-      commit((prev) => ({ ...prev, landing, cmsUpdatedAt }))
       await sync(async () => {
         await cloudSaveLanding(landing, cmsUpdatedAt)
-        const cloud = await fetchCloudCms()
-        if (!cloud?.hasLanding || !cloud.landing) return
-        const got = normalizeLanding(cloud.landing)
-        const want = normalizeLanding(landing)
-        if (
-          got.offerTitle !== want.offerTitle ||
-          got.heroTitle !== want.heroTitle ||
-          got.offerPrice !== want.offerPrice ||
-          got.ctaLabel !== want.ctaLabel ||
-          JSON.stringify(got.offerMediaIds) !== JSON.stringify(want.offerMediaIds)
-        ) {
-          throw new Error(
-            'Log in with your admin email and password, then click Save again so /offer can show this landing.',
-          )
+        markLocalCmsWrite(cmsUpdatedAt)
+        commit((prev) => ({ ...prev, landing, cmsUpdatedAt }))
+        try {
+          const cloud = await withTimeout(fetchCloudCms(), 8000, 'verify-timeout')
+          if (!cloud?.hasLanding || !cloud.landing) return
+          setSnapshot((prev) => applyRemoteCms(prev, cloud, true))
+        } catch {
+          /* landing row already saved */
         }
-        setSnapshot((prev) => applyRemoteCms(prev, cloud, true))
       }, true)
     },
     [commit, sync],
@@ -492,11 +493,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   )
 
   const reloadCms = useCallback(async (force = false) => {
-    if (!isSupabaseEnabled) return
+    if (!isSupabaseEnabled || isCmsPollPaused()) return
     const cloud = await fetchCloudCms()
     if (!cloud) return
     setSnapshot((prev) => applyRemoteCms(prev, cloud, force))
   }, [])
+
+  useEffect(() => onCmsChanged(() => void reloadCms(true)), [reloadCms])
 
   const addMessage = useCallback(
     async (input: Omit<ContactMessage, 'id' | 'read' | 'createdAt'>) => {

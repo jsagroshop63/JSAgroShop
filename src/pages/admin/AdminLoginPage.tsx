@@ -6,7 +6,7 @@ import { SITE } from '@/lib/seed'
 
 export function AdminLoginPage() {
   const { isAdmin, login } = useAuth()
-  const [email, setEmail] = useState('')
+  const [email, setEmail] = useState(import.meta.env.VITE_ADMIN_EMAIL || '')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
@@ -16,9 +16,15 @@ export function AdminLoginPage() {
   async function onSubmit(event: FormEvent) {
     event.preventDefault()
     setLoading(true)
-    const message = await login(email, password)
-    setError(message ?? '')
-    setLoading(false)
+    setError('')
+    try {
+      const message = await login(email, password)
+      setError(message ?? '')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Login failed')
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
@@ -63,7 +69,6 @@ export function AdminLoginPage() {
         >
           {loading ? 'Checking...' : 'Login'}
         </button>
-        <p className="mt-4 text-center text-xs text-ink/50">Use the admin email and password from Supabase.</p>
       </form>
     </div>
   )

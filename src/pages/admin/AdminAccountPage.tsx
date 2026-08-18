@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { useAuth } from '@/context/AuthContext'
 
 const USERS_URL = 'https://supabase.com/dashboard/project/btwsstaroldoghokfqtm/auth/users'
@@ -11,6 +11,15 @@ export function AdminAccountPage() {
   const [saving, setSaving] = useState(false)
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
+
+  useEffect(() => {
+    if (!saving) return
+    const timer = window.setTimeout(() => {
+      setSaving(false)
+      setError('Save timed out. Click Save again.')
+    }, 20000)
+    return () => window.clearTimeout(timer)
+  }, [saving])
 
   async function onSubmit(event: FormEvent) {
     event.preventDefault()
@@ -25,16 +34,21 @@ export function AdminAccountPage() {
       return
     }
     setSaving(true)
-    const message = await changePassword(currentPassword, nextPassword)
-    setSaving(false)
-    if (message) {
-      setError(message)
-      return
+    try {
+      const message = await changePassword(currentPassword, nextPassword)
+      if (message) {
+        setError(message)
+        return
+      }
+      setCurrentPassword('')
+      setNextPassword('')
+      setConfirmPassword('')
+      setNotice('Password changed. Use the new password next time you log in.')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Save failed')
+    } finally {
+      setSaving(false)
     }
-    setCurrentPassword('')
-    setNextPassword('')
-    setConfirmPassword('')
-    setNotice('Password changed. Use the new password next time you log in.')
   }
 
   return (

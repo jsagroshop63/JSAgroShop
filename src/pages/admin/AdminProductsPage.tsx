@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { useConfirm } from '@/components/admin/ConfirmDialog'
 import { AdminGalleryUpload, AdminUploadField } from '@/components/admin/AdminUploadField'
 import { SafeImage } from '@/components/ui/SafeImage'
@@ -30,6 +30,15 @@ export function AdminProductsPage() {
   const [saving, setSaving] = useState(false)
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
+
+  useEffect(() => {
+    if (!saving) return
+    const timer = window.setTimeout(() => {
+      setSaving(false)
+      setError('Save timed out. Click Save again.')
+    }, 20000)
+    return () => window.clearTimeout(timer)
+  }, [saving])
 
   function startEdit(product?: Product) {
     setNotice('')
