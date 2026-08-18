@@ -12,7 +12,7 @@ function publicOrigin() {
   if (typeof window === 'undefined') return ''
   const { hostname, origin } = window.location
   if (hostname === 'localhost' || hostname === '127.0.0.1') {
-    return (import.meta.env.VITE_SITE_URL || 'https://sayeed2.vercel.app').replace(/\/$/, '')
+    return (import.meta.env.VITE_SITE_URL || 'https://jsagroshop.com').replace(/\/$/, '')
   }
   return origin
 }
@@ -87,6 +87,7 @@ export function AdminLandingPage() {
   const [upload, setUpload] = useState(emptyMedia)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [savingFile, setSavingFile] = useState(false)
+  const [fileUploading, setFileUploading] = useState(false)
   const [busy, setBusy] = useState<LandingSection | 'shop' | ''>('')
   const [notice, setNotice] = useState('')
   const [okFor, setOkFor] = useState<LandingSection | 'shop' | ''>('')
@@ -170,8 +171,10 @@ export function AdminLandingPage() {
     const current = formRef.current
     let patch = pickSection(current, section)
     if (section === 'product') {
-      const uploaded = media.filter((item) => !isDemoLandingMedia(item))
-      const chosen = current.offerMediaIds.filter((id) => uploaded.some((item) => item.id === id))
+      const chosen = current.offerMediaIds.filter((id) => {
+        const row = media.find((item) => item.id === id)
+        return !row || !isDemoLandingMedia(row)
+      })
       patch = {
         ...patch,
         offerMediaIds: chosen,
@@ -249,9 +252,10 @@ export function AdminLandingPage() {
     setNotice('')
     setOkFor('')
     try {
-      const item: LandingMedia = { id: editingId ?? uid('media'), ...upload }
+      const item: LandingMedia = { id: editingId ?? uid('media'), ...upload, active: true }
       await saveMedia(item)
-      const nextIds = [...formRef.current.offerMediaIds, item.id].filter(
+      const liveIds = media.filter((row) => !isDemoLandingMedia(row)).map((row) => row.id)
+      const nextIds = [...liveIds, ...formRef.current.offerMediaIds, item.id].filter(
         (id, index, list) => list.indexOf(id) === index,
       )
       formRef.current = normalizeLanding({
@@ -335,7 +339,7 @@ export function AdminLandingPage() {
       <div>
         <h1 className="font-display text-3xl text-gold">Landing page</h1>
         <p className="mt-1 text-sm text-zinc-400">
-          Each Save updates only that block on /offer. Upload or delete a photo and it shows on the landing page right away.
+          Each Save updates only that block on /offer. Upload a photo, wait until Uploading finishes, then Save file — it shows on /offer for every browser.
         </p>
         <a
           href="/offer"
@@ -380,6 +384,7 @@ export function AdminLandingPage() {
               url.startsWith('data:video')
             setUpload({ ...upload, url, type: isVideo ? 'video' : upload.type })
           }}
+          onBusy={setFileUploading}
           accept="image/*,video/*"
           urlPlaceholder="Or paste image/video URL or YouTube embed"
         />
@@ -398,10 +403,10 @@ export function AdminLandingPage() {
         <div className="flex gap-2">
           <button
             type="submit"
-            disabled={savingFile}
+            disabled={savingFile || fileUploading}
             className="rounded-xl bg-gold px-6 py-3 font-bold text-leaf-deep disabled:opacity-60"
           >
-            {savingFile ? 'Saving...' : editingId ? 'Update file' : 'Save file'}
+            {savingFile || fileUploading ? 'Saving...' : editingId ? 'Update file' : 'Save file'}
           </button>
           {editingId ? (
             <button type="button" onClick={resetUpload} className="rounded-xl bg-white/10 px-4 py-3 text-zinc-100">
@@ -416,7 +421,7 @@ export function AdminLandingPage() {
         <section id="landing-product" className="space-y-4 rounded-2xl border border-white/10 bg-white/5 p-4">
           <p className="text-sm font-semibold text-zinc-200">Landing product — title, price, photos</p>
           <p className="text-xs text-zinc-500">
-            Tick a photo to show it on /offer. Untick or Delete removes it from the landing page immediately. Title/price still need Save.
+            Tick a photo to put it first on /offer. Every saved upload already shows on the landing page. Untick does not hide it; Delete removes it. Title/price still need Save.
           </p>
 
           <div>
@@ -522,7 +527,7 @@ export function AdminLandingPage() {
             Product title
             <input
               value={form.offerTitle}
-              onChange={(e) => patchForm({ offerTitle: e.target.value })}
+              onChange={(e) => patchSection('product', { offerTitle: e.target.value })}
               placeholder="মিয়াজাকি আম (সূর্য ডিম)"
               className="mt-1 w-full rounded-xl bg-white/5 px-3 py-3 text-zinc-100"
             />
@@ -535,7 +540,7 @@ export function AdminLandingPage() {
                 type="number"
                 min={0}
                 value={form.offerPrice || ''}
-                onChange={(e) => patchForm({ offerPrice: Number(e.target.value) })}
+                onChange={(e) => patchSection('product', { offerPrice: Number(e.target.value) })}
                 className="mt-1 w-full rounded-xl bg-white/5 px-3 py-3 text-zinc-100"
               />
             </label>
@@ -546,7 +551,7 @@ export function AdminLandingPage() {
                 min={0}
                 value={form.offerComparePrice ?? ''}
                 onChange={(e) =>
-                  patchForm({ offerComparePrice: e.target.value === '' ? null : Number(e.target.value) })
+                  patchSection('product', { offerComparePrice: e.target.value === '' ? null : Number(e.target.value) })
                 }
                 className="mt-1 w-full rounded-xl bg-white/5 px-3 py-3 text-zinc-100"
               />
@@ -602,7 +607,7 @@ export function AdminLandingPage() {
             Hero title (small gold line)
             <input
               value={form.heroTitle}
-              onChange={(e) => patchForm({ heroTitle: e.target.value })}
+              onChange={(e) => patchSection('hero', { heroTitle: e.target.value })}
               className="mt-1 w-full rounded-xl bg-white/5 px-3 py-3 text-zinc-100"
             />
           </label>
@@ -610,7 +615,7 @@ export function AdminLandingPage() {
             Hero subtitle
             <input
               value={form.heroSubtitle}
-              onChange={(e) => patchForm({ heroSubtitle: e.target.value })}
+              onChange={(e) => patchSection('hero', { heroSubtitle: e.target.value })}
               className="mt-1 w-full rounded-xl bg-white/5 px-3 py-3 text-zinc-100"
             />
           </label>
@@ -618,7 +623,7 @@ export function AdminLandingPage() {
             Order button text
             <input
               value={form.ctaLabel}
-              onChange={(e) => patchForm({ ctaLabel: e.target.value })}
+              onChange={(e) => patchSection('hero', { ctaLabel: e.target.value })}
               className="mt-1 w-full rounded-xl bg-white/5 px-3 py-3 text-zinc-100"
             />
             <span className="mt-1 block text-xs text-zinc-500">Used on hero buttons and on each photo. Empty hides those buttons.</span>
@@ -634,7 +639,7 @@ export function AdminLandingPage() {
             Package title (white box)
             <input
               value={form.packageTitle}
-              onChange={(e) => patchForm({ packageTitle: e.target.value })}
+              onChange={(e) => patchSection('package', { packageTitle: e.target.value })}
               className="mt-1 w-full rounded-xl bg-white/5 px-3 py-3 text-zinc-100"
             />
           </label>
@@ -642,7 +647,7 @@ export function AdminLandingPage() {
             Package items (one per line)
             <textarea
               value={form.packageItems.join('\n')}
-              onChange={(e) => patchForm({ packageItems: e.target.value.split('\n') })}
+              onChange={(e) => patchSection('package', { packageItems: e.target.value.split('\n') })}
               className="mt-1 min-h-40 w-full rounded-xl bg-white/5 px-3 py-3 text-zinc-100"
             />
             <span className="mt-1 block text-xs text-zinc-500">
@@ -660,7 +665,7 @@ export function AdminLandingPage() {
             Story title
             <input
               value={form.storyTitle}
-              onChange={(e) => patchForm({ storyTitle: e.target.value })}
+              onChange={(e) => patchSection('story', { storyTitle: e.target.value })}
               className="mt-1 w-full rounded-xl bg-white/5 px-3 py-3 text-zinc-100"
             />
           </label>
@@ -668,7 +673,7 @@ export function AdminLandingPage() {
             Story body
             <textarea
               value={form.storyBody}
-              onChange={(e) => patchForm({ storyBody: e.target.value })}
+              onChange={(e) => patchSection('story', { storyBody: e.target.value })}
               className="mt-1 min-h-28 w-full rounded-xl bg-white/5 px-3 py-3 text-zinc-100"
             />
           </label>
@@ -683,7 +688,7 @@ export function AdminLandingPage() {
             Why title
             <input
               value={form.whyTitle}
-              onChange={(e) => patchForm({ whyTitle: e.target.value })}
+              onChange={(e) => patchSection('why', { whyTitle: e.target.value })}
               className="mt-1 w-full rounded-xl bg-white/5 px-3 py-3 text-zinc-100"
             />
           </label>
@@ -691,7 +696,7 @@ export function AdminLandingPage() {
             Why items (one per line)
             <textarea
               value={form.whyItems.join('\n')}
-              onChange={(e) => patchForm({ whyItems: e.target.value.split('\n') })}
+              onChange={(e) => patchSection('why', { whyItems: e.target.value.split('\n') })}
               className="mt-1 min-h-28 w-full rounded-xl bg-white/5 px-3 py-3 text-zinc-100"
             />
           </label>
@@ -706,7 +711,7 @@ export function AdminLandingPage() {
             Help title
             <input
               value={form.helpTitle}
-              onChange={(e) => patchForm({ helpTitle: e.target.value })}
+              onChange={(e) => patchSection('help', { helpTitle: e.target.value })}
               className="mt-1 w-full rounded-xl bg-white/5 px-3 py-3 text-zinc-100"
             />
           </label>
@@ -714,7 +719,7 @@ export function AdminLandingPage() {
             Help subtitle
             <input
               value={form.helpSubtitle}
-              onChange={(e) => patchForm({ helpSubtitle: e.target.value })}
+              onChange={(e) => patchSection('help', { helpSubtitle: e.target.value })}
               className="mt-1 w-full rounded-xl bg-white/5 px-3 py-3 text-zinc-100"
             />
           </label>
@@ -722,7 +727,7 @@ export function AdminLandingPage() {
             Payment / WhatsApp title
             <input
               value={form.paymentTitle}
-              onChange={(e) => patchForm({ paymentTitle: e.target.value })}
+              onChange={(e) => patchSection('help', { paymentTitle: e.target.value })}
               className="mt-1 w-full rounded-xl bg-white/5 px-3 py-3 text-zinc-100"
             />
           </label>
@@ -730,7 +735,7 @@ export function AdminLandingPage() {
             Help / order phones
             <input
               value={form.paymentNumber}
-              onChange={(e) => patchForm({ paymentNumber: e.target.value })}
+              onChange={(e) => patchSection('help', { paymentNumber: e.target.value })}
               className="mt-1 w-full rounded-xl bg-white/5 px-3 py-3 text-zinc-100"
             />
           </label>
@@ -738,7 +743,7 @@ export function AdminLandingPage() {
             Payment note
             <textarea
               value={form.paymentNote}
-              onChange={(e) => patchForm({ paymentNote: e.target.value })}
+              onChange={(e) => patchSection('help', { paymentNote: e.target.value })}
               className="mt-1 min-h-20 w-full rounded-xl bg-white/5 px-3 py-3 text-zinc-100"
             />
           </label>
@@ -753,7 +758,7 @@ export function AdminLandingPage() {
             Checkout title
             <input
               value={form.checkoutTitle}
-              onChange={(e) => patchForm({ checkoutTitle: e.target.value })}
+              onChange={(e) => patchSection('checkout', { checkoutTitle: e.target.value })}
               className="mt-1 w-full rounded-xl bg-white/5 px-3 py-3 text-zinc-100"
             />
           </label>
@@ -761,7 +766,7 @@ export function AdminLandingPage() {
             Billing box title
             <input
               value={form.checkoutBillingTitle}
-              onChange={(e) => patchForm({ checkoutBillingTitle: e.target.value })}
+              onChange={(e) => patchSection('checkout', { checkoutBillingTitle: e.target.value })}
               className="mt-1 w-full rounded-xl bg-white/5 px-3 py-3 text-zinc-100"
             />
           </label>
@@ -769,7 +774,7 @@ export function AdminLandingPage() {
             Order box title
             <input
               value={form.checkoutOrderTitle}
-              onChange={(e) => patchForm({ checkoutOrderTitle: e.target.value })}
+              onChange={(e) => patchSection('checkout', { checkoutOrderTitle: e.target.value })}
               className="mt-1 w-full rounded-xl bg-white/5 px-3 py-3 text-zinc-100"
             />
           </label>
@@ -777,7 +782,7 @@ export function AdminLandingPage() {
             Place order button
             <input
               value={form.checkoutSubmitLabel}
-              onChange={(e) => patchForm({ checkoutSubmitLabel: e.target.value })}
+              onChange={(e) => patchSection('checkout', { checkoutSubmitLabel: e.target.value })}
               className="mt-1 w-full rounded-xl bg-white/5 px-3 py-3 text-zinc-100"
             />
           </label>
@@ -785,7 +790,7 @@ export function AdminLandingPage() {
             Cash on delivery note
             <textarea
               value={form.checkoutCodNote}
-              onChange={(e) => patchForm({ checkoutCodNote: e.target.value })}
+              onChange={(e) => patchSection('checkout', { checkoutCodNote: e.target.value })}
               className="mt-1 min-h-20 w-full rounded-xl bg-white/5 px-3 py-3 text-zinc-100"
             />
           </label>
@@ -815,7 +820,7 @@ export function AdminLandingPage() {
             Meta Pixel ID
             <input
               value={form.metaPixelId}
-              onChange={(e) => patchForm({ metaPixelId: e.target.value.replace(/\s/g, '') })}
+              onChange={(e) => patchSection('ads', { metaPixelId: e.target.value.replace(/\s/g, '') })}
               placeholder="Paste from Meta Events Manager"
               className="mt-1 w-full rounded-xl bg-black/30 px-3 py-3 text-zinc-100"
             />

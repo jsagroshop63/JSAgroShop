@@ -129,10 +129,6 @@ function asMedia(row: Record<string, unknown>): LandingMedia {
   }
 }
 
-function hasBengali(value: string) {
-  return /[\u0980-\u09FF]/.test(value)
-}
-
 function asLanding(row: Record<string, unknown>): LandingContent {
   const landing = normalizeLanding({
     heroTitle: String(row.hero_title ?? ''),
@@ -161,7 +157,10 @@ function asLanding(row: Record<string, unknown>): LandingContent {
     checkoutSubmitLabel: String(row.checkout_submit_label ?? ''),
     checkoutCodNote: String(row.checkout_cod_note ?? ''),
   })
-  return hasBengali(landing.offerTitle) ? landing : seedLanding
+  if (!landing.offerTitle.trim() && !landing.heroTitle.trim() && !landing.packageItems.length) {
+    return seedLanding
+  }
+  return landing
 }
 
 function asSite(row: Record<string, unknown>): SiteContent {

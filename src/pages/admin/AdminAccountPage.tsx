@@ -1,7 +1,11 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { useAuth } from '@/context/AuthContext'
+import { isSupabaseEnabled } from '@/lib/supabase'
 
-const USERS_URL = 'https://supabase.com/dashboard/project/bvmlajrseganhjekglro/auth/users'
+const PROJECT_REF = 'bvmlajrseganhjekglro'
+const USERS_URL = `https://supabase.com/dashboard/project/${PROJECT_REF}/auth/users`
+const ADD_USER_URL = `https://supabase.com/dashboard/project/${PROJECT_REF}/auth/users`
+const ADMIN_EMAIL = import.meta.env.VITE_ADMIN_EMAIL || 'jsagroshop63@gmail.com'
 
 export function AdminAccountPage() {
   const { changePassword } = useAuth()
@@ -55,6 +59,33 @@ export function AdminAccountPage() {
     <div className="max-w-2xl space-y-5">
       <h1 className="font-display text-3xl text-gold">Admin account</h1>
       <p className="text-sm text-zinc-300">Change the login password for the admin you are using now.</p>
+
+      <section className="rounded-2xl border border-gold/30 bg-gold/10 p-5 space-y-3">
+        <p className="text-xs font-semibold tracking-[0.18em] text-gold uppercase">Connect Supabase</p>
+        <p className="text-sm text-zinc-200">
+          {isSupabaseEnabled
+            ? 'This shop is already pointed at your Supabase project. Uploads and Save still need an Auth user.'
+            : 'Supabase URL and anon key are missing in .env.local, so cloud Save will not run.'}
+        </p>
+        <ol className="list-decimal space-y-2 pl-5 text-sm text-zinc-200">
+          <li>Open Authentication → Users in the Supabase dashboard.</li>
+          <li>Click Add user → Create new user.</li>
+          <li>
+            Email: <span className="font-semibold text-cream">{ADMIN_EMAIL}</span>
+          </li>
+          <li>Password: the same password you use on this admin login (default admin123).</li>
+          <li>Turn on Auto Confirm User, then Create user.</li>
+          <li>Log out of this admin, log in again with that email and password, then click Save.</li>
+        </ol>
+        <a
+          href={ADD_USER_URL}
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex rounded-xl bg-gold px-4 py-3 text-sm font-bold text-leaf-deep"
+        >
+          Open Supabase users
+        </a>
+      </section>
 
       <form onSubmit={onSubmit} className="rounded-2xl border border-gold/30 bg-gold/10 p-5 space-y-3">
         <p className="text-xs font-semibold tracking-[0.18em] text-gold uppercase">Change password</p>

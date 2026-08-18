@@ -5,6 +5,7 @@ type FieldProps = {
   label: string
   value: string
   onChange: (url: string) => void
+  onBusy?: (busy: boolean) => void
   accept?: string
   urlPlaceholder?: string
   required?: boolean
@@ -14,6 +15,7 @@ export function AdminUploadField({
   label,
   value,
   onChange,
+  onBusy,
   accept = 'image/*',
   urlPlaceholder = 'Or paste image URL',
   required,
@@ -28,12 +30,14 @@ export function AdminUploadField({
     if (!file) return
     setError('')
     setUploading(true)
+    onBusy?.(true)
     try {
       onChange(await uploadMediaFile(file))
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Upload failed. Try a smaller file or paste a URL.')
     } finally {
       setUploading(false)
+      onBusy?.(false)
     }
   }
 
