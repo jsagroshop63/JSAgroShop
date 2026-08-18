@@ -77,8 +77,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (data.session) {
         localStorage.setItem(KEY, '1')
         setIsAdmin(true)
-      } else if (localStorage.getItem(KEY) === '1') {
-        await ensureAdminSession().catch(() => {})
+      } else {
+        try {
+          await ensureAdminSession()
+          const { data: again } = await supabase.auth.getSession()
+          if (again.session) {
+            localStorage.setItem(KEY, '1')
+            setIsAdmin(true)
+          } else {
+            localStorage.removeItem(KEY)
+            setIsAdmin(false)
+          }
+        } catch {
+          localStorage.removeItem(KEY)
+          setIsAdmin(false)
+        }
       }
       if (!cancelled) setReady(true)
     })
@@ -109,17 +122,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setIsAdmin(true)
       void enableAdminAlerts(true)
     }
-    if (matchesAdminEmail(user) && supabase) {
-      rememberAdminLogin(user, pass)
-      enterLocal()
-      void ensureAdminSession().catch(() => retryCloudLogin())
-      return null
-    }
     if (supabase) {
       try {
         const { error } = await withTimeout(
           supabase.auth.signInWithPassword({ email: user, password: pass }),
-          5000,
+          12000,
           'HTTP 504',
         )
         if (!error) {
@@ -127,20 +134,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           enterLocal()
           return null
         }
-        if (error.message.includes('Invalid login')) return 'Incorrect email or password.'
-        if (matchesAdminEmail(user)) {
-          rememberAdminLogin(user, pass)
-          enterLocal()
-          retryCloudLogin()
-          return null
+        if (/invalid login|invalid credentials/i.test(error.message)) {
+          return 'This email is not in the current Supabase project. Add it under Authentication → Users, then log in again.'
         }
         return error.message
       } catch {
-        if (matchesAdminEmail(user)) {
+        if (matchesEnvAdmin(user, pass)) {
           rememberAdminLogin(user, pass)
           enterLocal()
           retryCloudLogin()
-          return null
+          return 'Cloud is slow. You are in the panel, but Save/upload needs a real Supabase user.'
         }
         return 'Cloud is slow. Try Login again in a minute.'
       }

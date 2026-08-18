@@ -1,8 +1,8 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { useAuth } from '@/context/AuthContext'
-import { isSupabaseEnabled } from '@/lib/supabase'
+import { isSupabaseEnabled, supabaseUrl } from '@/lib/supabase'
 
-const PROJECT_REF = 'iecmzlxtxqauctlclkqa'
+const PROJECT_REF = supabaseUrl.match(/https:\/\/([a-z0-9]+)\.supabase\.co/i)?.[1] || ''
 const USERS_URL = `https://supabase.com/dashboard/project/${PROJECT_REF}/auth/users`
 const ADD_USER_URL = `https://supabase.com/dashboard/project/${PROJECT_REF}/auth/users`
 const ADMIN_EMAIL = import.meta.env.VITE_ADMIN_EMAIL || 'jsagroshop63@gmail.com'
@@ -64,7 +64,7 @@ export function AdminAccountPage() {
         <p className="text-xs font-semibold tracking-[0.18em] text-gold uppercase">Connect Supabase</p>
         <p className="text-sm text-zinc-200">
           {isSupabaseEnabled
-            ? 'This shop is already pointed at your Supabase project. Uploads and Save still need an Auth user.'
+            ? `This shop is connected to ${new URL(supabaseUrl).host}. Old projects stay in the Supabase dashboard until you delete them. Uploads still need an Auth user in THIS project.`
             : 'Supabase URL and anon key are missing in .env.local, so cloud Save will not run.'}
         </p>
         <ol className="list-decimal space-y-2 pl-5 text-sm text-zinc-200">

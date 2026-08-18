@@ -63,8 +63,19 @@ async function fetchWithRetry(input: RequestInfo | URL, init?: RequestInit) {
 
 export const isSupabaseEnabled = Boolean(url && key)
 
+export const supabaseUrl = url || ''
+
 export const supabase: SupabaseClient | null = isSupabaseEnabled
   ? createClient(url!, key!, {
       global: { fetch: fetchWithRetry },
     })
   : null
+
+if (typeof window !== 'undefined' && url) {
+  const ref = new URL(url).hostname.split('.')[0]
+  for (const keyName of Object.keys(localStorage)) {
+    if (keyName.startsWith('sb-') && keyName.includes('-auth-token') && !keyName.includes(ref)) {
+      localStorage.removeItem(keyName)
+    }
+  }
+}
