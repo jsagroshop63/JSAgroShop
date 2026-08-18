@@ -108,10 +108,7 @@ export function LandingPage() {
     const ticked = content.offerMediaIds
       .map((id) => byId.get(id))
       .filter((item): item is NonNullable<typeof item> => Boolean(item))
-    const rest = live
-      .filter((item) => !content.offerMediaIds.includes(item.id))
-      .sort((a, b) => a.sortOrder - b.sortOrder)
-    const uploaded = ticked.length ? [...ticked, ...rest] : rest
+    const uploaded = ticked
     const picked = uploaded.length ? uploaded : seedMedia.filter((item) => item.active)
     return picked.map((item) => ({ ...item, url: freshMediaUrl(item.url, mediaStamp) }))
   }, [content.offerMediaIds, media, mediaStamp])
