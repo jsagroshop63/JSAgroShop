@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { useAuth } from '@/context/AuthContext'
 
-const USERS_URL = 'https://supabase.com/dashboard/project/btwsstaroldoghokfqtm/auth/users'
+const USERS_URL = 'https://supabase.com/dashboard/project/bvmlajrseganhjekglro/auth/users'
 
 export function AdminAccountPage() {
   const { changePassword } = useAuth()

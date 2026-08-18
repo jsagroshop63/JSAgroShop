@@ -12,7 +12,8 @@
     "lint": "oxlint",
     "preview": "vite preview",
     "setup:supabase": "npx --yes tsx scripts/setup-supabase.ts",
-    "repair:supabase": "npx --yes tsx scripts/repair-supabase.ts"
+    "repair:supabase": "npx --yes tsx scripts/repair-supabase.ts",
+    "clear:media": "npx --yes tsx scripts/clear-media.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.3",

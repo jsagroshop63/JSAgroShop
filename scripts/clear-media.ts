@@ -14,6 +14,27 @@ function loadEnvLocal() {
   return env
 }
 
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+async function retry<T>(label: string, times: number, task: () => Promise<T>): Promise<T> {
+  let last: unknown
+  for (let i = 1; i <= times; i++) {
+    try {
+      const value = await task()
+      console.log(`${label}: ok`)
+      return value
+    } catch (error) {
+      last = error
+      const message = error instanceof Error ? error.message : String(error)
+      console.log(`${label}: try ${i}/${times} — ${message}`)
+      if (i < times) await sleep(8000)
+    }
+  }
+  throw last
+}
+
 const env = loadEnvLocal()
 const url = env.VITE_SUPABASE_URL
 const serviceKey = env.SUPABASE_SERVICE_ROLE_KEY
@@ -31,7 +52,7 @@ const supabase = createClient(url, serviceKey, {
 
 async function listPaths(prefix = ''): Promise<string[]> {
   const { data, error } = await supabase.storage.from('media').list(prefix, { limit: 1000, offset: 0 })
-  if (error) throw error
+  if (error) throw new Error(error.message)
   const paths: string[] = []
   for (const item of data ?? []) {
     const full = prefix ? `${prefix}/${item.name}` : item.name
@@ -54,42 +75,45 @@ async function emptyMediaBucket() {
   for (let i = 0; i < paths.length; i += 100) {
     const chunk = paths.slice(i, i + 100)
     const { error } = await supabase.storage.from('media').remove(chunk)
-    if (error) throw error
+    if (error) throw new Error(error.message)
   }
   console.log(`storage: deleted ${paths.length} files`)
 }
 
-const media = await supabase.from('landing_media').delete().neq('id', '')
-console.log(media.error ? `landing_media: ${media.error.message}` : 'landing_media: cleared')
-
-const landing = await supabase.from('landing_content').update({ offer_media_ids: [] }).eq('id', 1)
-console.log(landing.error ? `landing_content: ${landing.error.message}` : 'landing_content: offer photos cleared')
-
-try {
-  await emptyMediaBucket()
-} catch (error) {
-  console.log(`storage: ${error instanceof Error ? error.message : 'clear failed'}`)
+async function clearTables() {
+  const media = await supabase.from('landing_media').delete().neq('id', '')
+  if (media.error) throw new Error(media.error.message)
+  const landing = await supabase.from('landing_content').update({ offer_media_ids: [] }).eq('id', 1)
+  if (landing.error) throw new Error(landing.error.message)
 }
 
-const users = await supabase.auth.admin.listUsers({ perPage: 200 })
-if (users.error) {
-  console.log(`auth: ${users.error.message}`)
-} else {
+async function ensureAdmin() {
+  const users = await supabase.auth.admin.listUsers({ perPage: 200 })
+  if (users.error) throw new Error(users.error.message)
   const existing = users.data.users.find((user) => user.email?.toLowerCase() === adminEmail.toLowerCase())
   if (existing) {
     const { error } = await supabase.auth.admin.updateUserById(existing.id, {
       password: adminPassword,
       email_confirm: true,
     })
-    console.log(error ? `auth: ${error.message}` : 'auth: admin password ready')
-  } else {
-    const { error } = await supabase.auth.admin.createUser({
-      email: adminEmail,
-      password: adminPassword,
-      email_confirm: true,
-    })
-    console.log(error ? `auth: ${error.message}` : 'auth: admin user created')
+    if (error) throw new Error(error.message)
+    return
   }
+  const { error } = await supabase.auth.admin.createUser({
+    email: adminEmail,
+    password: adminPassword,
+    email_confirm: true,
+  })
+  if (error) throw new Error(error.message)
 }
 
-console.log('media_cleared')
+try {
+  await retry('tables', 6, clearTables)
+  await retry('storage', 6, emptyMediaBucket)
+  await retry('admin-login', 4, ensureAdmin)
+  console.log('cleared_like_new')
+} catch (error) {
+  console.error(error instanceof Error ? error.message : error)
+  console.log('still_busy_try_when_supabase_is_green')
+  process.exit(1)
+}
