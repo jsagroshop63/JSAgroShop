@@ -16,6 +16,9 @@ dist-ssr
 !.env.example
 .vercel
 
+# Nested duplicate copy (was a broken gitlink; Netlify cannot clone it)
+/new project 2/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
